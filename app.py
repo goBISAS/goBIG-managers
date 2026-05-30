@@ -9,51 +9,42 @@ st.markdown("Visualización en tiempo real del Backlog cruzado con Costos de Nó
 st.markdown("---")
 
 # 2. Motor de extracción y procesamiento de datos
-@st.cache_data(ttl=600) # Guarda los datos en memoria por 10 min para que cargue rápido
+@st.cache_data(ttl=600) # Guarda los datos en memoria por 10 min
 def load_data():
     try:
-        # A. Extraer Backlog (todas las hojas unidas)
+        # A. Extraer Backlog (todas las hojas unidas, fila 5)
         url_backlog = "https://docs.google.com/spreadsheets/d/1Vl5rhQDi6YooJgjYAF76oOO0aN8rbPtu07giky36wSo/export?format=xlsx"
-        # La fila 5 tiene los encabezados reales (índice 4 en Python)
         xls = pd.read_excel(url_backlog, sheet_name=None, header=4)
         
         dfs = []
         for sheet_name, df in xls.items():
-            # Filtramos para asegurar que es una hoja de tareas (debe tener la columna de Cliente)
             if 'Nombre del cliente' in df.columns:
                 dfs.append(df)
         
         df_operativo = pd.concat(dfs, ignore_index=True)
         
-        # B. Extraer Costos de Recursos (Solo la hoja necesaria vía CSV para mayor velocidad)
+        # B. Extraer Costos de Recursos 
+        # CORRECCIÓN: Los encabezados están en la fila 1 (índice 0)
         url_recursos = "https://docs.google.com/spreadsheets/d/1ldntONNpWFgXPcF8VINDKzNAhG_vGMdzGEOESM3aLNU/export?format=csv&gid=1006395596"
-        # La fila 2 tiene los encabezados (índice 1 en Python)
-        df_costos = pd.read_csv(url_recursos, header=1)
+        df_costos = pd.read_csv(url_recursos, header=0)
         
         # C. Limpieza y Cruce de Datos
-        # Quitamos espacios en blanco accidentales en los nombres para que el cruce sea exacto
         df_operativo['Persona a cargo'] = df_operativo['Persona a cargo'].astype(str).str.strip()
         df_costos['COLABORADOR'] = df_costos['COLABORADOR'].astype(str).str.strip()
         df_costos.columns = df_costos.columns.str.strip()
         
-        # Extraemos solo las dos columnas que nos importan de la nómina
         costos_limpios = df_costos[['COLABORADOR', 'Costo Hora Real (2026)']].copy()
-        
-        # Limpiamos el texto de moneda (quitamos '$' y comas) para convertirlo a número matemático
         costos_limpios['Costo Hora Real (2026)'] = costos_limpios['Costo Hora Real (2026)'].replace('[\$,]', '', regex=True).astype(float)
         
-        # Hacemos el cruce (VLOOKUP / BuscarV en lenguaje Python)
         df_final = pd.merge(df_operativo, costos_limpios, left_on='Persona a cargo', right_on='COLABORADOR', how='left')
         
-        # Convertimos las horas a números asegurando que no haya errores si alguien escribió un texto
         df_final['Tiempo real'] = pd.to_numeric(df_final['Tiempo real'], errors='coerce').fillna(0)
         df_final['Tiempo estimado'] = pd.to_numeric(df_final['Tiempo estimado'], errors='coerce').fillna(0)
         
-        # D. ¡MAGIA! Cálculos financieros de la operación
+        # D. Cálculos financieros
         df_final['Costo Operativo Real ($)'] = df_final['Tiempo real'] * df_final['Costo Hora Real (2026)']
         df_final['Costo Operativo Estimado ($)'] = df_final['Tiempo estimado'] * df_final['Costo Hora Real (2026)']
         
-        # Eliminamos filas en blanco (donde no hay cliente)
         df_final = df_final.dropna(subset=['Nombre del cliente'])
         
         return df_final
@@ -81,7 +72,6 @@ if not df.empty:
     col2.metric("Costo Operativo Total", f"${costo_total:,.0f}")
     col3.metric("Total de Tareas Registradas", total_tareas)
     
-    # Vista previa de la base de datos (Ocultable para celular)
     with st.expander("👀 Ver tabla consolidada cruzada (Toca para expandir)"):
         st.dataframe(df[['Nombre del cliente', 'Tipo de tarea', 'Persona a cargo', 'Tiempo real', 'Costo Hora Real (2026)', 'Costo Operativo Real ($)']].head(20))
         
