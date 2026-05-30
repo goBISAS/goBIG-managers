@@ -72,7 +72,7 @@ if st.button("🔄 Sincronizar Todo"):
 df, df_costos_global = load_data()
 
 if not df.empty:
-    # 4. FILTROS (CORREGIDOS CON .dropna())
+    # 4. FILTROS
     st.subheader("🔍 Consola de Filtros")
     col_f1, col_f2, col_f3 = st.columns(3)
     cliente_sel = col_f1.selectbox("Cliente:", ["Todos"] + sorted(list(df['Nombre del cliente'].dropna().unique())))
@@ -123,14 +123,19 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 8. GRÁFICOS (3 VISUALIZACIONES COMPLEMENTARIAS)
+    # 8. GRÁFICOS (3 VISUALIZACIONES CON ETIQUETAS FIJAS MÓVILES)
     st.subheader("📈 Análisis de Valor y Taxonomía")
     g1, g2 = st.columns(2)
     
     with g1:
         st.write("🧱 **Distribución del Esfuerzo por Cliente**")
         df_t1 = df_filtrado.groupby('Nombre del cliente').agg({'Valor Operativo Invertido ($)': 'sum'}).reset_index()
-        fig1 = px.treemap(df_t1, path=['Nombre del cliente'], values='Valor Operativo Invertido ($)', color='Valor Operativo Invertido ($)', color_continuous_scale='Blues')
+        total_global_money = df_t1['Valor Operativo Invertido ($)'].sum()
+        df_t1['Porcentaje'] = (df_t1['Valor Operativo Invertido ($)'] / total_global_money * 100).round(1) if total_global_money > 0 else 0
+        df_t1['Etiqueta'] = df_t1['Nombre del cliente'] + "<br>$" + df_t1['Valor Operativo Invertido ($)'].map('{:,.0f}'.format) + "<br>" + df_t1['Porcentaje'].astype(str) + "%"
+        
+        fig1 = px.treemap(df_t1, path=['Etiqueta'], values='Valor Operativo Invertido ($)', color='Valor Operativo Invertido ($)', color_continuous_scale='Blues')
+        fig1.update_traces(textinfo="label")
         fig1.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False)
         st.plotly_chart(fig1, use_container_width=True)
 
@@ -138,12 +143,14 @@ if not df.empty:
         st.write("📊 **Esfuerzo en Horas por Colaborador**")
         df_b = df_filtrado.groupby('Persona HR').agg({'Tiempo real': 'sum'}).reset_index().sort_values(by='Tiempo real')
         fig2 = px.bar(df_b, x='Tiempo real', y='Persona HR', orientation='h', text=df_b['Tiempo real'].map('{:,.1f}h'.format), color='Tiempo real', color_continuous_scale='Purples')
+        fig2.update_traces(textposition='inside')
         fig2.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False)
         st.plotly_chart(fig2, use_container_width=True)
 
     st.write("🌿 **Taxonomía de Tareas (Cruce Cliente vs. Actividad)**")
     df_t2 = df_filtrado.groupby(['Nombre del cliente', 'Tipo de tarea']).agg({'Valor Operativo Invertido ($)': 'sum'}).reset_index()
     fig3 = px.treemap(df_t2, path=['Nombre del cliente', 'Tipo de tarea'], values='Valor Operativo Invertido ($)', color='Tipo de tarea', color_discrete_sequence=px.colors.qualitative.Pastel)
+    fig3.update_traces(textinfo="label+value", valueformat="$,.0f") # Fuerza etiquetas fijas legibles de texto y moneda
     fig3.update_layout(margin=dict(t=10, l=10, r=10, b=10))
     st.plotly_chart(fig3, use_container_width=True)
 
