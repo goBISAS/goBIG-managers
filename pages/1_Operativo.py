@@ -2,31 +2,22 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 
-# 1. Configuración de gala para la página
+# 1. Configuración de la página (El tema se adaptará automáticamente al modo oscuro del sistema/app)
 st.set_page_config(page_title="goBIG Operativo v1.0", page_icon="📈", layout="wide")
 
-# 2. Estilo CSS para pulir la interfaz
-st.markdown("""
-    <style>
-    .main { background-color: #f8f9fa; }
-    .stMetric { background-color: #ffffff; padding: 15px; border-radius: 10px; box-shadow: 0 2px 4px rgba(0,0,0,0.05); }
-    [data-testid="stSidebar"] { background-color: #f1f3f6; }
-    </style>
-    """, unsafe_allow_html=True)
-
-# 3. Barra Lateral: Logo Oficial de goBIG e Identidad
+# 2. Barra Lateral: Logo Oficial de goBIG e Identidad
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
     st.caption("v1.0 - Dashboard de Inteligencia Operativa")
     st.info("💡 **Consejo:** Filtra por mes para ver la rentabilidad exacta frente a la nómina fija.")
 
-# 4. Encabezado Principal
+# 3. Encabezado Principal
 st.title("⚙️ Panel de Inteligencia Operativa y Costos")
 st.markdown("Análisis estratégico del esfuerzo, rentabilidad y capacidad de goBIG en tiempo real.")
 st.markdown("---")
 
-# 5. Motor de extracción y procesamiento (Optimizado)
+# 4. Motor de extracción y procesamiento de datos
 @st.cache_data(ttl=600)
 def load_data():
     try:
@@ -83,14 +74,14 @@ def load_data():
         st.error(f"Error técnico en el motor de datos: {e}")
         return pd.DataFrame(), pd.DataFrame()
 
-# 6. Sincronización
+# 5. Sincronización
 if st.button("🔄 Sincronizar Datos Maestros"):
     st.cache_data.clear()
 
 df, df_costos_global = load_data()
 
 if not df.empty:
-    # 7. FILTROS
+    # 6. FILTROS
     st.subheader("🔍 Consola de Mandos")
     c1, c2, c3 = st.columns(3)
     cliente_sel = c1.selectbox("Filtrar Cliente:", ["Todos"] + sorted(list(df['Nombre del cliente'].dropna().unique())))
@@ -104,7 +95,7 @@ if not df.empty:
         
     st.markdown("---")
     
-    # 8. CÁLCULO INTELIGENTE DE NÓMINA FIJA ACTIVA
+    # 7. CÁLCULO INTELIGENTE DE NÓMINA FIJA ACTIVA
     if mes_sel != "Todos":
         f_l = pd.to_datetime(mes_sel + "-01") + pd.offsets.MonthEnd(0)
         df_activos = df_costos_global[df_costos_global['Fecha inicio del contrato'] <= f_l]
@@ -118,7 +109,7 @@ if not df.empty:
     else:
         nomina_real = df_f['Costo Nómina Prop ($)'].sum()
 
-    # 9. KPIs PRINCIPALES
+    # 8. KPIs PRINCIPALES
     k1, k2, k3, k4 = st.columns(4)
     v_inv = df_f['Valor Invertido ($)'].sum()
     k1.metric("Horas Invertidas", f"{df_f['Tiempo real'].sum():,.1f} h")
@@ -126,7 +117,7 @@ if not df.empty:
     k3.metric("Nómina Fija Activa", f"${nomina_real:,.2f}")
     k4.metric("Tareas Ejecutadas", f"{len(df_f):,}")
 
-    # 10. SEMÁFOROS BI
+    # 9. SEMÁFOROS BI
     st.subheader("🚨 Diagnóstico Operativo")
     h_est = df_f['Tiempo estimado'].sum()
     if h_est > 0:
@@ -140,12 +131,12 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 11. ANÁLISIS VISUAL
+    # 10. ANÁLISIS VISUAL
     st.subheader("📈 Visualización Estratégica de Datos")
     g1, g2 = st.columns(2)
     
     with g1:
-        st.write("**🧱 Concentración de Valor por Cliente**")
+        st.write("**¼ Concentración de Valor por Cliente**")
         df_t1 = df_f.groupby('Nombre del cliente').agg({'Valor Invertido ($)': 'sum'}).reset_index()
         total_m = df_t1['Valor Invertido ($)'].sum()
         df_t1['Etiqueta'] = df_t1['Nombre del cliente'] + "<br>$" + df_t1['Valor Invertido ($)'].map('{:,.0f}'.format) + "<br>" + (df_t1['Valor Invertido ($)']/total_m*100).round(1).astype(str) + "%"
@@ -171,7 +162,7 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 12. EVOLUCIÓN CRONOLÓGICA
+    # 11. EVOLUCIÓN CRONOLÓGICA
     st.subheader("📅 Tendencia Diaria del Esfuerzo")
     df_l = df_f.groupby('Fecha_Texto').agg({'Tiempo real': 'sum'}).reset_index()
     if not df_l.empty:
@@ -181,3 +172,6 @@ if not df.empty:
     
     st.markdown("---")
     st.caption("goBIG Dashboard | Propiedad Intelectual 2026 | Desarrollado para Junta Directiva")
+            
+else:
+    st.warning("Sin datos para mostrar. Verifique las fuentes en Google Sheets.")
