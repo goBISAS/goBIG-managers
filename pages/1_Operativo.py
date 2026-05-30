@@ -21,7 +21,8 @@ def load_data():
         for sheet_name, df in xls.items():
             if 'Nombre del cliente' in df.columns:
                 if 'Fecha de entrega' in df.columns:
-                    df['Fecha de entrega'] = pd.to_datetime(df['Fecha de entrega'], errors='coerce')
+                    # CORRECCIÓN: Forzamos a que el día vaya primero en el Backlog
+                    df['Fecha de entrega'] = pd.to_datetime(df['Fecha de entrega'], dayfirst=True, errors='coerce')
                 dfs.append(df)
         
         df_operativo = pd.concat(dfs, ignore_index=True)
@@ -48,7 +49,7 @@ def load_data():
         
         df_operativo['Persona HR'] = df_operativo['Persona a cargo'].map(mapeo_nombres).fillna(df_operativo['Persona a cargo'].str.upper())
         
-        # Identificar Columna R (Costo total empresa) y Columna D (Fecha inicio del contrato)
+        # Identificar Columna R (Costo total empresa)
         nombre_columna_total = 'Costo total empresa' if 'Costo total empresa' in df_costos.columns else df_costos.columns[17]
         
         df_costos[nombre_columna_total] = df_costos[nombre_columna_total].astype(str).replace(r'[\$,\s]', '', regex=True)
@@ -57,17 +58,17 @@ def load_data():
         df_costos['Costo Hora Real (2026)'] = df_costos['Costo Hora Real (2026)'].astype(str).replace(r'[\$,\s]', '', regex=True)
         df_costos['Costo Hora Real (2026)'] = pd.to_numeric(df_costos['Costo Hora Real (2026)'], errors='coerce').fillna(0)
         
-        # Convertimos la Fecha de inicio de contrato a un formato de tiempo real para Python
-        df_costos['Fecha inicio del contrato'] = pd.to_datetime(df_costos['Fecha inicio del contrato'], errors='coerce')
+        # CORRECCIÓN: Forzamos a que el día vaya primero en la matriz de Recursos de HR
+        df_costos['Fecha inicio del contrato'] = pd.to_datetime(df_costos['Fecha inicio del contrato'], dayfirst=True, errors='coerce')
         
-        # Crear base limpia para el cruce por tarea incluyendo la fecha de contratación
+        # Crear base limpia para el cruce por tarea
         costos_limpios = df_costos[['COLABORADOR', 'Costo Hora Real (2026)', 'Costo Mensual Fijo', 'Fecha inicio del contrato']].copy()
         
         df_final = pd.merge(df_operativo, costos_limpios, left_on='Persona HR', right_on='COLABORADOR', how='left')
         df_final['Tiempo real'] = pd.to_numeric(df_final['Tiempo real'], errors='coerce').fillna(0)
         df_final['Tiempo estimado'] = pd.to_numeric(df_final['Tiempo estimado'], errors='coerce').fillna(0)
         
-        # Cálculos de valor por esfuerzo individual
+        # Cálculos de esfuerzo
         df_final['Valor Operativo Invertido ($)'] = df_final['Tiempo real'] * df_final['Costo Hora Real (2026)']
         df_final['Costo de Nómina Real ($)'] = (df_final['Tiempo real'] / 170) * df_final['Costo Mensual Fijo']
         
@@ -83,7 +84,7 @@ def load_data():
 if st.button("🔄 Actualizar Datos"):
     st.cache_data.clear()
 
-with st.spinner("Sincronizando registros y aplicando filtros de contratación cronológica..."):
+with st.spinner("Sincronizando calendarios y aplicando formato regional de fechas..."):
     df, df_costos_global = load_data()
 
 if not df.empty:
@@ -110,34 +111,26 @@ if not df.empty:
         
     st.markdown("---")
     
-    # 5. 🧠 NUEVA LÓGICA ULTRA-INTELIGENTE DE FECHA DE CONTRATACIÓN
-    # Evaluamos qué empleados ya habían iniciado contrato según el mes seleccionado
+    # 5. FILTRADO CRONOLÓGICO SEGURO DE CONTRATOS
     if mes_sel != "Todos":
-        # Creamos el límite: Último día del mes seleccionado
         fecha_limite_mes = pd.to_datetime(mes_sel + "-01") + pd.offsets.MonthEnd(0)
         df_costos_activos = df_costos_global[df_costos_global['Fecha inicio del contrato'] <= fecha_limite_mes]
     else:
-        # Si ve todo el histórico, solo quitamos contratos que no tengan fecha válida
         df_costos_activos = df_costos_global.dropna(subset=['Fecha inicio del contrato'])
 
     # 6. CÁLCULO DEL KPI DE NÓMINA FIJA
     if cliente_sel == "Todos" and persona_sel == "Todas":
-        # Sumamos la nómina fija SOLO de los que ya estaban contratados en este periodo
-        nomina_base_mensual = df_costos_activos['Costo Mensual Fijo'].sum()
+        nomina_real = df_costos_activos['Costo Mensual Fijo'].sum()
         if mes_sel == "Todos":
             num_meses = max(1, df_filtrado['Mes-Año'].nunique())
-            nomina_real = nomina_base_mensual * num_meses
-        else:
-            nomina_real = nomina_base_mensual
+            nomina_real = nomina_real * num_meses
     elif persona_sel != "Todas":
-        # Si selecciona a alguien específico, verifica si ya estaba contratado
         colab_df = df_costos_activos[df_costos_activos['COLABORADOR'] == persona_sel]
         nomina_real = colab_df['Costo Mensual Fijo'].sum() if not colab_df.empty else 0
     else:
-        # Filtro por cliente: Proporción de horas consumidas
         nomina_real = df_filtrado['Costo de Nómina Real ($)'].sum()
 
-    # 7. TARJETAS DE RESUMEN FINALES
+    # 7. TARJETAS DE RESUMEN
     st.subheader("📊 Métricas de Rendimiento y Comparativa de Costos")
     col1, col2, col3, col4 = st.columns(4)
     
@@ -150,13 +143,13 @@ if not df.empty:
     col3.metric("Costo de Nómina Real (Fijo)", f"${nomina_real:,.2f}")
     col4.metric("Total de Tareas", f"{total_tareas:,}")
     
-    # Mensaje adaptado
+    # Mensaje dinámico interactivo
     desviacion = valor_invertido - nomina_real
     if cliente_sel == "Todos" and persona_sel == "Todas":
         if desviacion > 0:
             st.warning(f"⚠️ **Alerta Financiera:** El valor del esfuerzo operativo invertido supera la nómina fija activa por **${desviacion:,.2f}**.")
         else:
-            st.success(f"💡 **Rentabilidad de Nómina:** goBIG operó con una holgura de capacidad sin costo extra de **${abs(desviacion):,.2f}** frente al costo de los contratos activos de este periodo.")
+            st.success(f"💡 **Rentabilidad de Nómina:** goBIG operó con una holgura de capacidad sin costo extra de **${abs(desviacion):,.2f}** frente al costo de los contratos activos.")
     else:
         st.info(f"📊 Diferencia entre Esfuerzo Comercial Proyectado y Costo Fijo Activo: **${desviacion:,.2f}**")
 
