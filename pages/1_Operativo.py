@@ -123,7 +123,7 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 8. GRÁFICOS (3 VISUALIZACIONES CON ETIQUETAS FIJAS MÓVILES)
+    # 8. GRÁFICOS (CORREGIDOS CON PLANTILLAS NATIVAS SEGURAS)
     st.subheader("📈 Análisis de Valor y Taxonomía")
     g1, g2 = st.columns(2)
     
@@ -150,7 +150,9 @@ if not df.empty:
     st.write("🌿 **Taxonomía de Tareas (Cruce Cliente vs. Actividad)**")
     df_t2 = df_filtrado.groupby(['Nombre del cliente', 'Tipo de tarea']).agg({'Valor Operativo Invertido ($)': 'sum'}).reset_index()
     fig3 = px.treemap(df_t2, path=['Nombre del cliente', 'Tipo de tarea'], values='Valor Operativo Invertido ($)', color='Tipo de tarea', color_discrete_sequence=px.colors.qualitative.Pastel)
-    fig3.update_traces(textinfo="label+value", valueformat="$,.0f") # Fuerza etiquetas fijas legibles de texto y moneda
+    
+    # SOLUCIÓN DEL BUG: Usamos plantilla nativa segura para inyectar texto y dinero formateado
+    fig3.update_traces(texttemplate="%{label}<br>$%{value:,.0f}")
     fig3.update_layout(margin=dict(t=10, l=10, r=10, b=10))
     st.plotly_chart(fig3, use_container_width=True)
 
