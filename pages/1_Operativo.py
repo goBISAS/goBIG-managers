@@ -72,12 +72,12 @@ if st.button("🔄 Sincronizar Todo"):
 df, df_costos_global = load_data()
 
 if not df.empty:
-    # 4. FILTROS
+    # 4. FILTROS (CORREGIDOS CON .dropna())
     st.subheader("🔍 Consola de Filtros")
     col_f1, col_f2, col_f3 = st.columns(3)
-    cliente_sel = col_f1.selectbox("Cliente:", ["Todos"] + sorted(list(df['Nombre del cliente'].unique())))
-    persona_sel = col_f2.selectbox("Colaborador:", ["Todas"] + sorted(list(df['Persona HR'].unique())))
-    mes_sel = col_f3.selectbox("Mes:", ["Todos"] + sorted(list(df['Mes-Año'].unique()), reverse=True))
+    cliente_sel = col_f1.selectbox("Cliente:", ["Todos"] + sorted(list(df['Nombre del cliente'].dropna().unique())))
+    persona_sel = col_f2.selectbox("Colaborador:", ["Todas"] + sorted(list(df['Persona HR'].dropna().unique())))
+    mes_sel = col_f3.selectbox("Mes:", ["Todos"] + sorted(list(df['Mes-Año'].dropna().unique()), reverse=True))
     
     df_filtrado = df.copy()
     if cliente_sel != "Todos": df_filtrado = df_filtrado[df_filtrado['Nombre del cliente'] == cliente_sel]
@@ -123,19 +123,19 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 8. GRÁFICOS (ACTUALIZADO: 3 GRÁFICOS)
+    # 8. GRÁFICOS (3 VISUALIZACIONES COMPLEMENTARIAS)
     st.subheader("📈 Análisis de Valor y Taxonomía")
     g1, g2 = st.columns(2)
     
     with g1:
-        st.write("🧱 **Distribución por Cliente**")
+        st.write("🧱 **Distribución del Esfuerzo por Cliente**")
         df_t1 = df_filtrado.groupby('Nombre del cliente').agg({'Valor Operativo Invertido ($)': 'sum'}).reset_index()
         fig1 = px.treemap(df_t1, path=['Nombre del cliente'], values='Valor Operativo Invertido ($)', color='Valor Operativo Invertido ($)', color_continuous_scale='Blues')
         fig1.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False)
         st.plotly_chart(fig1, use_container_width=True)
 
     with g2:
-        st.write("📊 **Esfuerzo por Colaborador**")
+        st.write("📊 **Esfuerzo en Horas por Colaborador**")
         df_b = df_filtrado.groupby('Persona HR').agg({'Tiempo real': 'sum'}).reset_index().sort_values(by='Tiempo real')
         fig2 = px.bar(df_b, x='Tiempo real', y='Persona HR', orientation='h', text=df_b['Tiempo real'].map('{:,.1f}h'.format), color='Tiempo real', color_continuous_scale='Purples')
         fig2.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False)
@@ -150,11 +150,12 @@ if not df.empty:
     st.markdown("---")
     
     # 9. LÍNEA DE TIEMPO
-    st.subheader("📅 Tendencia Diaria")
+    st.subheader("📅 Tendencia Diaria del Esfuerzo Operativo")
     df_l = df_filtrado.groupby('Fecha_Texto').agg({'Tiempo real': 'sum'}).reset_index()
-    fig4 = px.line(df_l, x='Fecha_Texto', y='Tiempo real', markers=True)
-    fig4.update_traces(text=df_l['Tiempo real'].map('{:,.1f}h'.format), textposition="top center")
-    st.plotly_chart(fig4, use_container_width=True)
-        
+    if not df_l.empty:
+        fig4 = px.line(df_l, x='Fecha_Texto', y='Tiempo real', markers=True)
+        fig4.update_traces(text=df_l['Tiempo real'].map('{:,.1f}h'.format), textposition="top center")
+        st.plotly_chart(fig4, use_container_width=True)
+            
 else:
     st.warning("No se encontraron datos.")
