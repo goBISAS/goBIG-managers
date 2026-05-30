@@ -21,7 +21,6 @@ def load_data():
         for sheet_name, df in xls.items():
             if 'Nombre del cliente' in df.columns:
                 if 'Fecha de entrega' in df.columns:
-                    # CORRECCIÓN: Forzamos a que el día vaya primero en el Backlog
                     df['Fecha de entrega'] = pd.to_datetime(df['Fecha de entrega'], dayfirst=True, errors='coerce')
                 dfs.append(df)
         
@@ -58,7 +57,6 @@ def load_data():
         df_costos['Costo Hora Real (2026)'] = df_costos['Costo Hora Real (2026)'].astype(str).replace(r'[\$,\s]', '', regex=True)
         df_costos['Costo Hora Real (2026)'] = pd.to_numeric(df_costos['Costo Hora Real (2026)'], errors='coerce').fillna(0)
         
-        # CORRECCIÓN: Forzamos a que el día vaya primero en la matriz de Recursos de HR
         df_costos['Fecha inicio del contrato'] = pd.to_datetime(df_costos['Fecha inicio del contrato'], dayfirst=True, errors='coerce')
         
         # Crear base limpia para el cruce por tarea
@@ -84,7 +82,7 @@ def load_data():
 if st.button("🔄 Actualizar Datos"):
     st.cache_data.clear()
 
-with st.spinner("Sincronizando calendarios y aplicando formato regional de fechas..."):
+with st.spinner("Sincronizando modelos de inteligencia operativa..."):
     df, df_costos_global = load_data()
 
 if not df.empty:
@@ -142,20 +140,55 @@ if not df.empty:
     col2.metric("Valor Operativo Invertido (Esfuerzo)", f"${valor_invertido:,.2f}")
     col3.metric("Costo de Nómina Real (Fijo)", f"${nomina_real:,.2f}")
     col4.metric("Total de Tareas", f"{total_tareas:,}")
+
+    st.markdown("---")
+
+    # 🟢 8. NUEVO: PANEL DE HALLAZGOS E INSIGHTS AUTOMÁTICOS (SEMÁFOROS BI) 🟢
+    st.subheader("🚨 Semáforos e Insights de Business Intelligence")
     
-    # Mensaje dinámico interactivo
-    desviacion = valor_invertido - nomina_real
-    if cliente_sel == "Todos" and persona_sel == "Todas":
-        if desviacion > 0:
-            st.warning(f"⚠️ **Alerta Financiera:** El valor del esfuerzo operativo invertido supera la nómina fija activa por **${desviacion:,.2f}**.")
+    # A. Análisis de Rentabilidad / Desviación de Proyectos (Over-servicing)
+    horas_estimadas_totales = df_filtrado['Tiempo estimado'].sum()
+    if horas_estimadas_totales > 0:
+        desviacion_proyectos = ((total_horas - horas_estimadas_totales) / horas_estimadas_totales) * 100
+        if desviacion_proyectos > 10:
+            st.error(f"🔴 **Semáforo Cliente (Over-servicing):** Las horas reales superan a las estimadas en un **{desviacion_proyectos:.1f}%**. Riesgo alto de pérdida de margen comercial en los filtros seleccionados.")
+        elif desviacion_proyectos > 0:
+            st.warning(f"🟡 **Semáforo Cliente (Alerta Ligera):** Desviación del **{desviacion_proyectos:.1f}%** por encima de lo planeado. Monitorear entregables.")
         else:
-            st.success(f"💡 **Rentabilidad de Nómina:** goBIG operó con una holgura de capacidad sin costo extra de **${abs(desviacion):,.2f}** frente al costo de los contratos activos.")
+            st.success(f"🟢 **Semáforo Cliente (Eficiencia Comercial):** Ejecución óptima. Se consumió un **{abs(desviacion_proyectos):.1f}% EN MENOS** del tiempo estimado.")
     else:
-        st.info(f"📊 Diferencia entre Esfuerzo Comercial Proyectado y Costo Fijo Activo: **${desviacion:,.2f}**")
+        st.info("ℹ️ No hay horas estimadas registradas en este recorte para calcular el semáforo comercial.")
+
+    # B. Análisis de Riesgo de Burnout (Estrés de Equipo)
+    # Agrupamos por persona y contamos cuántos días únicos registró tareas
+    df_burnout = df_filtrado.groupby('Persona HR').agg({'Tiempo real': 'sum', 'Fecha_Texto': 'nunique'}).reset_index()
+    personas_en_riesgo = []
+    
+    for idx, row in df_burnout.iterrows():
+        if row['Fecha_Texto'] > 0:
+            promedio_diario = row['Tiempo real'] / row['Fecha_Texto']
+            if promedio_diario > 8.5:
+                personas_en_riesgo.append(f"**{row['Persona HR']}** ({promedio_diario:.1f} hrs/día promedio)")
+                
+    if personas_en_riesgo:
+        st.error(f"🔴 **Semáforo de Equipo (Alerta Burnout):** Detectamos colaboradores superando el límite ideal de 8.5h diarias en los días reportados: {', '.join(personas_en_riesgo)}. Riesgo de desgaste operativo.")
+    else:
+        st.success("🟢 **Semáforo de Equipo (Balance de Carga):** Carga operativa equilibrada. Ningún colaborador excede el promedio de 8.5 horas por día laborado en este periodo.")
+
+    # C. Análisis de Capacidad Ociosa
+    if cliente_sel == "Todos" and persona_sel == "Todas" and mes_sel != "Todos":
+        # Evaluamos cuántas personas activas hay en el mes y calculamos su capacidad teórica contratada (~170h al mes)
+        capacidad_teorica_empresa = df_costos_activos['COLABORADOR'].nunique() * 170
+        if capacidad_teorica_empresa > 0:
+            porcentaje_uso_nomina = (total_horas / capacidad_teorica_empresa) * 100
+            if porcentaje_uso_nomina < 75:
+                st.warning(f"🟡 **Semáforo de Capacidad (Tiempo Ocioso):** goBIG está utilizando solo el **{porcentaje_uso_nomina:.1f}%** de la capacidad total de la nómina fija contratada. Hay espacio disponible para absorber nuevos proyectos.")
+            else:
+                st.success(f"🟢 **Semáforo de Capacidad (Productividad Fija):** Uso óptimo de la planilla fija al **{porcentaje_uso_nomina:.1f}%** de su capacidad contratada.")
 
     st.markdown("---")
     
-    # 8. SECCIÓN DE GRÁFICOS
+    # 9. SECCIÓN DE GRÁFICOS
     st.subheader("📈 Análisis Visual Dinámico")
     g_col1, g_col2 = st.columns(2)
     
@@ -182,7 +215,7 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 9. EVOLUCIÓN CRONOLÓGICA
+    # 10. EVOLUCIÓN CRONOLÓGICA
     st.subheader("📅 Evolución Temporal del Esfuerzo Operativo")
     df_line = df_filtrado.groupby('Fecha_Texto').agg({'Tiempo real': 'sum'}).reset_index().sort_values(by='Fecha_Texto')
     
@@ -194,7 +227,7 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 10. TABLA DETALLADA
+    # 11. TABLA DETALLADA
     with st.expander("👀 Ver tabla detallada (Datos Filtrados)"):
         st.dataframe(df_filtrado[['Nombre del cliente', 'Tipo de tarea', 'Persona HR', 'Tiempo real', 'Valor Operativo Invertido ($)', 'Mes-Año']].head(50))
         
