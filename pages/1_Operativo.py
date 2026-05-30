@@ -20,9 +20,16 @@ def load_data():
         dfs = []
         for sheet_name, df in xls.items():
             if 'Nombre del cliente' in df.columns:
+                # Asegurar la correcta lectura de la fecha
+                if 'Fecha de entrega' in df.columns:
+                    df['Fecha de entrega'] = pd.to_datetime(df['Fecha de entrega'], errors='coerce')
                 dfs.append(df)
         
         df_operativo = pd.concat(dfs, ignore_index=True)
+        
+        # Estructuramos campos de texto basados en tiempo para agrupar y filtrar
+        df_operativo['Mes-Año'] = df_operativo['Fecha de entrega'].dt.strftime('%Y-%m')
+        df_operativo['Fecha_Texto'] = df_operativo['Fecha de entrega'].dt.strftime('%Y-%m-%d')
         
         # B. Extraer Costos de Recursos (Nómina)
         url_recursos = "https://docs.google.com/spreadsheets/d/1ldntONNpWFgXPcF8VINDKzNAhG_vGMdzGEOESM3aLNU/export?format=csv&gid=1006395596"
@@ -45,8 +52,7 @@ def load_data():
         df_operativo['Persona HR'] = df_operativo['Persona a cargo'].map(mapeo_nombres).fillna(df_operativo['Persona a cargo'].str.upper())
         
         # Selección de columnas de nómina (Costo por hora y Costo Fijo Mensual de la Columna R/Costo total empresa)
-        # Nota: Si prefieres la W, Python busca la columna por su nombre exacto. Usaremos 'Costo total empresa' que es la R.
-        nombre_columna_total = 'Costo total empresa' if 'Costo total empresa' in df_costos.columns else df_costos.columns[17] # Respaldo por posición R
+        nombre_columna_total = 'Costo total empresa' if 'Costo total empresa' in df_costos.columns else df_costos.columns[17]
         
         costos_limpios = df_costos[['COLABORADOR', 'Costo Hora Real (2026)', nombre_columna_total]].copy()
         
@@ -64,10 +70,9 @@ def load_data():
         df_final['Tiempo estimado'] = pd.to_numeric(df_final['Tiempo estimado'], errors='coerce').fillna(0)
         
         # D. Cálculos financieros avanzados
-        # Valor operativo invertido (Horas de esfuerzo x Tarifa teórica por hora)
         df_final['Valor Operativo Invertido ($)'] = df_final['Tiempo real'] * df_final['Costo Hora Real (2026)']
         
-        # Costo de Nómina Real Proporcional (Cuánto cuesta realmente ese tiempo según su salario fijo mensual considerando base de 170 horas al mes)
+        # Costo de Nómina Real Proporcional (Base estándar de 170 horas al mes laborables)
         df_final['Costo de Nómina Real ($)'] = (df_final['Tiempo real'] / 170) * df_final['Costo Mensual Fijo']
         
         df_final = df_final.dropna(subset=['Nombre del cliente'])
@@ -82,13 +87,13 @@ def load_data():
 if st.button("🔄 Actualizar Datos"):
     st.cache_data.clear()
 
-with st.spinner("Descargando base de datos, cruzando salarios fijos y preparando gráficos..."):
+with st.spinner("Descargando base de datos, estructurando línea de tiempo..."):
     df = load_data()
 
 if not df.empty:
-    # 4. SECCIÓN DE FILTROS
+    # 4. 🎛️ SECCIÓN DE FILTROS ACTUALIZADA (AHORA CON FILTRO MENSUAL)
     st.subheader("🔍 Consola de Filtros")
-    col_f1, col_f2 = st.columns(2)
+    col_f1, col_f2, col_f3 = st.columns(3)
     
     lista_clientes = ["Todos"] + sorted(list(df['Nombre del cliente'].dropna().unique()))
     cliente_sel = col_f1.selectbox("Filtrar por Cliente:", lista_clientes)
@@ -96,15 +101,22 @@ if not df.empty:
     lista_personas = ["Todas"] + sorted(list(df['Persona HR'].dropna().unique()))
     persona_sel = col_f2.selectbox("Filtrar por Colaborador:", lista_personas)
     
+    # Extraemos dinámicamente los meses válidos que se encuentran registrados en el Backlog
+    lista_meses = ["Todos"] + sorted(list(df['Mes-Año'].dropna().unique()), reverse=True)
+    mes_sel = col_f3.selectbox("Filtrar por Mes Calendario:", lista_meses)
+    
+    # Aplicamos la cascada de filtros
     df_filtrado = df.copy()
     if cliente_sel != "Todos":
         df_filtrado = df_filtrado[df_filtrado['Nombre del cliente'] == cliente_sel]
     if persona_sel != "Todas":
         df_filtrado = df_filtrado[df_filtrado['Persona HR'] == persona_sel]
+    if mes_sel != "Todos":
+        df_filtrado = df_filtrado[df_filtrado['Mes-Año'] == mes_sel]
         
     st.markdown("---")
     
-    # 5. TARJETAS DE RESUMEN (REDISEÑADAS CON TU PROPUESTA)
+    # 5. 📊 TARJETAS DE RESUMEN TEMPORALES
     st.subheader("📊 Métricas de Rendimiento y Comparativa de Costos")
     col1, col2, col3, col4 = st.columns(4)
     
@@ -118,21 +130,21 @@ if not df.empty:
     col3.metric("Costo de Nómina Real (Fijo)", f"${nomina_real:,.2f}")
     col4.metric("Total de Tareas", f"{total_tareas:,}")
     
-    # Alerta gerencial intuitiva
+    # Alerta o confirmación gerencial intuitiva
     desviacion = valor_invertido - nomina_real
     if desviacion > 0:
-        st.warning(f"⚠️ **Alerta de Capacidad:** El valor del esfuerzo invertido supera en **${desviacion:,.2f}** al costo de nómina real fija contratada (Over-servicing o sobrecarga de tareas).")
+        st.warning(f"⚠️ **Alerta de Capacidad:** El valor del esfuerzo invertido supera en **${desviacion:,.2f}** al costo de nómina real fija contratada para este recorte (Over-servicing o sobrecarga).")
     else:
-        st.success(f"💡 **Eficiencia Operativa:** Contamos con una holgura de capacidad equivalente a **${abs(desviacion):,.2f}** respecto a la nómina fija.")
+        st.success(f"💡 **Eficiencia Operativa:** Contamos con una holgura de capacidad equivalente a **${abs(desviacion):,.2f}** respecto a la nómina fija contratada en este periodo.")
 
     st.markdown("---")
     
-    # 6. SECCIÓN DE GRÁFICOS
+    # 6. 📈 SECCIÓN DE GRÁFICOS DINÁMICOS
     st.subheader("📈 Análisis Visual Dinámico")
     g_col1, g_col2 = st.columns(2)
     
     with g_col1:
-        st.write("🧱 **Proporción del Valor Invertido por Cliente (Treemap)**")
+        st.write("¼ **Proporción del Valor Invertido por Cliente (Treemap)**")
         df_tree = df_filtrado.groupby('Nombre del cliente').agg({'Valor Operativo Invertido ($)': 'sum'}).reset_index()
         total_global_money = df_tree['Valor Operativo Invertido ($)'].sum()
         df_tree['Porcentaje'] = (df_tree['Valor Operativo Invertido ($)'] / total_global_money * 100).round(1) if total_global_money > 0 else 0
@@ -154,9 +166,32 @@ if not df.empty:
 
     st.markdown("---")
     
-    # 7. TABLA DETALLADA
+    # 7. 📅 NUEVO: EVOLUCIÓN CRONOLÓGICA EN LA LÍNEA DE TIEMPO
+    st.subheader("📅 Evolución Temporal del Esfuerzo Operativo")
+    
+    # Agrupamos los datos filtrados por fecha calendario exacta para armar la línea de tendencia
+    df_line = df_filtrado.groupby('Fecha_Texto').agg({'Tiempo real': 'sum'}).reset_index().sort_values(by='Fecha_Texto')
+    
+    if not df_line.empty:
+        fig_line = px.line(
+            df_line, 
+            x='Fecha_Texto', 
+            y='Tiempo real',
+            labels={'Fecha_Texto': 'Fecha del Calendario', 'Tiempo real': 'Horas Invertidas del Equipo'},
+            markers=True
+        )
+        # Fijamos las etiquetas numéricas arriba de cada vértice de la línea (perfecto para pantalla celular)
+        fig_line.update_traces(text=df_line['Tiempo real'].map('{:,.1f}h'.format), textposition="top center")
+        fig_line.update_layout(margin=dict(t=20, l=10, r=10, b=20), xaxis_tickangle=-45)
+        st.plotly_chart(fig_line, use_container_width=True)
+    else:
+        st.info("No hay fechas de entrega registradas en el periodo seleccionado para trazar la línea de tendencia.")
+
+    st.markdown("---")
+    
+    # 8. TABLA DETALLADA
     with st.expander("👀 Ver tabla detallada (Datos Filtrados)"):
-        st.dataframe(df_filtrado[['Nombre del cliente', 'Tipo de tarea', 'Persona HR', 'Tiempo real', 'Valor Operativo Invertido ($)', 'Costo de Nómina Real ($)']].head(50))
+        st.dataframe(df_filtrado[['Nombre del cliente', 'Tipo de tarea', 'Persona HR', 'Tiempo real', 'Valor Operativo Invertido ($)', 'Costo de Nómina Real ($)', 'Mes-Año']].head(50))
         
 else:
     st.warning("No se encontraron datos.")
