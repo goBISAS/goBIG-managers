@@ -3,43 +3,60 @@ import pandas as pd
 import plotly.express as px
 
 # 1. Configuración de la página
-st.set_page_config(page_title="goBIG Financiero v1.3", page_icon="💰", layout="wide")
+st.set_page_config(page_title="goBIG Financiero v1.4", page_icon="💰", layout="wide")
 
 # Barra Lateral con Identidad Continua
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
-    st.caption("v1.3 - Consola de Control Financiero")
-    st.info("💡 **Sistema Autoadaptable:** Esta versión tolera pestañas truncadas por Excel y hojas vacías de cuentas nuevas de forma segura.")
+    st.caption("v1.4 - Consola de Control Financiero")
+    st.info("💡 **Actualización:** Motor de fechas blindado contra formatos de banco incompletos y años fantasma.")
 
 st.title("💰 Consola Financiera y Control de Caja")
 st.markdown("Consolidación bancaria unificada y auditoría contable avanzada.")
 st.markdown("---")
 
-# 2. Funciones de Limpieza Especializadas de Dinero
+# 2. Funciones de Limpieza Especializadas (Dinero y Fechas)
 def clean_currency_global(value):
-    """Convierte formatos de moneda COL o USA a número puro de forma segura."""
     if pd.isna(value) or str(value).strip() in ['', 'nan', 'None']: return 0.0
     val_str = str(value).replace('$', '').replace(' ', '').strip()
-    
-    # Manejo de formatos mixtos con puntos y comas
     if ',' in val_str and '.' in val_str:
-        if val_str.find('.') < val_str.find(','): # Formato COL: 1.234.567,89
+        if val_str.find('.') < val_str.find(','): 
             val_str = val_str.replace('.', '').replace(',', '.')
-        else: # Formato USA: 1,234,567.89
+        else: 
             val_str = val_str.replace(',', '')
-    elif ',' in val_str: # Solo comas
-        if len(val_str.split(',')[-1]) <= 2: # Decimal COL (ej: 50000,00)
+    elif ',' in val_str: 
+        if len(val_str.split(',')[-1]) <= 2: 
             val_str = val_str.replace(',', '.')
-        else: # Miles USA (ej: 5,000,000)
+        else: 
             val_str = val_str.replace(',', '')
-            
     try:
         return float(val_str)
     except ValueError:
         return 0.0
 
-# 3. Motor de extracción elástico a prueba de truncado y hojas vacías
+def clean_financial_dates(date_series):
+    """Escudo cronológico: repara fechas incompletas de bancos y fuerza formato latino."""
+    def fix_string(d):
+        if pd.isna(d): return pd.NaT
+        d = str(d).strip()
+        if not d or d.lower() in ['nan', 'none', 'nat']: return pd.NaT
+        
+        # Arreglo para extractos bancarios que solo botan Día/Mes (Ej: '16/04')
+        if len(d) <= 5 and '/' in d:
+            parts = d.split('/')
+            if len(parts) == 2:
+                d = f"{parts[0]}/{parts[1]}/2026"  # Inyectamos el año
+                
+        d = d.replace('-', '/')
+        return d
+
+    cleaned = date_series.apply(fix_string)
+    # format='mixed' permite leer formatos cruzados, dayfirst=True prioriza DD/MM
+    parsed = pd.to_datetime(cleaned, format='mixed', dayfirst=True, errors='coerce')
+    return parsed
+
+# 3. Motor de extracción elástico
 @st.cache_data(ttl=600)
 def load_financial_data():
     try:
@@ -48,26 +65,22 @@ def load_financial_data():
         xls = pd.ExcelFile(url_documento)
         sheet_names = xls.sheet_names
         
-        # SOLUCIÓN AL TRUNCADO: Buscamos por los códigos numéricos fijos que sobreviven a los 31 caracteres
         matches_bancolombia = [s for s in sheet_names if s.startswith('01_')]
         matches_bbva = [s for s in sheet_names if s.startswith('001')]
         
         if not matches_bancolombia:
-            st.error(f"❌ Estructura Crítica: No se encontró la pestaña que inicia con '01_'. Hojas en Sheets: {sheet_names}")
+            st.error(f"❌ No se encontró la pestaña que inicia con '01_'.")
             return pd.DataFrame()
             
-        # Carga segura de Bancolombia (Nuestra base de columnas guía)
         df_bancolombia = pd.read_excel(xls, sheet_name=matches_bancolombia[0], header=0)
         df_bancolombia['Cuenta'] = 'Bancolombia'
         
-        # ESCUDO CONTRA HOJAS VACÍAS: Procesamos BBVA de forma ultra-defensiva
         if matches_bbva:
             try:
                 df_bbva_raw = pd.read_excel(xls, sheet_name=matches_bbva[0], header=0)
-                # Si la hoja no tiene filas o está en blanco, creamos un espejo seguro libre de errores
                 if df_bbva_raw.empty or len(df_bbva_raw.columns) < 2:
                     df_bbva = pd.DataFrame(columns=df_bancolombia.columns)
-                    df_bbva.loc[0] = [None] * len(df_bancolombia.columns) # Fila vacía de control
+                    df_bbva.loc[0] = [None] * len(df_bancolombia.columns)
                 else:
                     df_bbva = df_bbva_raw.copy()
             except Exception:
@@ -77,31 +90,30 @@ def load_financial_data():
             
         df_bbva['Cuenta'] = 'BBVA'
         
-        # Unificamos de forma segura
         df_caja = pd.concat([df_bancolombia, df_bbva], ignore_index=True)
         df_caja.columns = df_caja.columns.str.replace(r'\n', ' ', regex=True).str.strip()
         
-        # Identificación elástica de columnas por contenido semántico
         matches_monto = [c for c in df_caja.columns if 'monto' in c.lower()]
         matches_saldo = [c for c in df_caja.columns if 'saldo' in c.lower()]
         matches_fecha = [c for c in df_caja.columns if 'fecha' in c.lower()]
         
         if not matches_monto or not matches_saldo or not matches_fecha:
-            st.error(f"❌ Error de Columnas: Verifique los nombres de los encabezados. Títulos leídos: {list(df_caja.columns)}")
+            st.error(f"❌ Error de Columnas: Verifique los nombres. Títulos: {list(df_caja.columns)}")
             return pd.DataFrame()
             
-        # Conversión y limpieza profunda de datos monetarios y cronológicos
         df_caja['Monto_Neto'] = df_caja[matches_monto[0]].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[matches_saldo[0]].apply(clean_currency_global)
         
-        df_caja['Fecha del movimiento'] = pd.to_datetime(df_caja[matches_fecha[0]], errors='coerce', dayfirst=True)
-        # Mantenemos las celdas con fechas válidas, eliminando los registros de control vacíos
+        # 🛡️ Aplicamos el escudo cronológico
+        df_caja['Fecha del movimiento'] = clean_financial_dates(df_caja[matches_fecha[0]])
+        
+        # BARRERA ANTI-FANTASMAS: Destruimos años imposibles (como 0001) o celdas vacías
         df_caja = df_caja.dropna(subset=['Fecha del movimiento'])
+        df_caja = df_caja[df_caja['Fecha del movimiento'].dt.year >= 2020]
         
         df_caja['Mes-Año'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m')
         df_caja['Fecha_Texto'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m-%d')
         
-        # Mapeo elástico de observaciones y centros de costos
         desc_cols = [c for c in df_caja.columns if 'descrip' in c.lower() or 'detalle' in c.lower()]
         cc_cols = [c for c in df_caja.columns if 'centro' in c.lower() or 'costo' in c.lower()]
         nota_cols = [c for c in df_caja.columns if 'nota' in c.lower()]
@@ -117,7 +129,7 @@ def load_financial_data():
         df_caja['Nota_Limpia'] = df_caja[nota_col].astype(str).str.strip().str.lower()
         df_caja['Desc_Limpia'] = df_caja[desc_col].astype(str).str.strip()
         
-        # 🧠 CLASIFICACIÓN INTELIGENTE (Mapeo de Reglas Jerárquicas)
+        # 🧠 CLASIFICACIÓN (La optimizaremos con el diccionario en la próxima sesión)
         def clasificar(row):
             cc_manual = str(row['CC_Limpio']).strip()
             nota_manual = str(row['Nota_Limpia']).strip()
@@ -125,11 +137,9 @@ def load_financial_data():
             
             if cc_manual not in ['', 'nan', 'none']: return cc_manual.upper()
             
-            # Control de Pauta
             if any(x in desc for x in ['GOOGLE ADS', 'META ADS', 'FACEBOOK ADS', 'ADS']):
                 return f"PAUTA: {nota_manual.upper()}" if nota_manual not in ['', 'nan'] else "ALERTA: PAUTA SIN CLIENTE"
             
-            # Gastos Fijos
             if 'WORKSPACE' in desc or 'GOOGLE *' in desc: return 'SOFTWARE (INTERNO)'
             if 'CANVA' in desc: return 'SOFTWARE (INTERNO)'
             if '4X1000' in desc or 'GOBIERNO' in desc: return 'IMPUESTOS BANCARIOS'
@@ -138,7 +148,6 @@ def load_financial_data():
             if 'NEQUI' in desc and ('CONTADORA' in desc or 'CONTABIL' in desc): return 'HONORARIOS'
             if 'INTERBANC' in desc: return 'INGRESOS CLIENTES'
             
-            # Gastos Variables Sospechosos
             if any(x in desc for x in ['UBER', 'DIDI', 'CABIFY']): return 'POR CLASIFICAR - TRANSPORTE'
             if any(x in desc for x in ['RESTAURANTE', 'ALMUERZO', 'CAFE', 'D1', 'ATELIER', 'SAN GIORGI']): return 'POR CLASIFICAR - ALIMENTACIÓN'
             
@@ -158,13 +167,13 @@ def load_financial_data():
 if st.button("🔄 Actualizar Datos Financieros"):
     st.cache_data.clear()
 
-with st.spinner("Ejecutando algoritmos elásticos de lectura y homologación de saldos..."):
+with st.spinner("Ejecutando escudo de fechas y limpieza de saldos..."):
     df_caja = load_financial_data()
 
 if not df_caja.empty:
-    # 5. CONSOLA DE FILTROS
     c1, c2, c3 = st.columns(3)
     cuenta_sel = c1.selectbox("Filtrar Cuenta:", ["Consolidado (Ambas)", "Bancolombia", "BBVA"])
+    # Alerta resuelta: Los meses locos ya no existirán en este menú
     mes_sel = c2.selectbox("Filtrar por Mes:", ["Todos"] + sorted(list(df_caja['Mes-Año'].unique()), reverse=True))
     cc_sel = c3.selectbox("Filtrar por Centro Costos:", ["Todos"] + sorted(list(df_caja['Centro_Costos_BI'].unique())))
     
@@ -173,7 +182,6 @@ if not df_caja.empty:
     if mes_sel != "Todos": df_f = df_f[df_f['Mes-Año'] == mes_sel]
     if cc_sel != "Todos": df_f = df_f[df_f['Centro_Costos_BI'] == cc_sel]
     
-    # 6. MÓDULO DE LIQUIDEZ NETO
     st.subheader("📊 Resumen de Flujo de Caja")
     k1, k2, k3, k4 = st.columns(4)
     
@@ -194,21 +202,18 @@ if not df_caja.empty:
     flujo = df_f['Ingreso ($)'].sum() - df_f['Egreso ($)'].sum()
     k4.metric("Flujo Neto Caja", f"${flujo:,.2f}", delta=f"${flujo:,.2f}")
 
-    # 7. PANEL DE AUDITORÍA (SEMÁFOROS INTERACTIVOS)
     st.subheader("🚨 Auditoría Contable Automatizada")
     alertas = df_f[df_f['Centro_Costos_BI'].str.contains('POR CLASIFICAR|ALERTA')]
     
     if not alertas.empty:
-        st.error(f"🔴 **Semáforo de Higiene Contable:** Se detectaron **{len(alertas)} transacciones** variables o pautas huérfanas. Agrégales su nota en Google Sheets:")
+        st.error(f"🔴 **Semáforo de Higiene Contable:** Se detectaron **{len(alertas)} transacciones** pendientes. Agrégales su nota en Google Sheets:")
         st.dataframe(alertas[['Fecha_Texto', 'Desc_Limpia', 'Cuenta', 'Monto_Neto', 'Centro_Costos_BI']], use_container_width=True)
     else:
-        st.success("🟢 **Semáforo de Higiene Contable:** ¡Caja impecable! No hay gastos variables colados ni pautas publicitarias sin asignar.")
+        st.success("🟢 **Semáforo de Higiene Contable:** ¡Caja impecable! No hay gastos colados ni pautas sin asignar.")
 
-    # B. Alerta del impuesto 4x1000
     gasto_4x1000 = df_f[df_f['Centro_Costos_BI'] == 'IMPUESTOS BANCARIOS']['Egreso ($)'].sum()
     if gasto_4x1000 > 0:
         st.info(f"💸 **Fuga Gravamen Bancario:** El cobro del 4x1000 y comisiones bancarias suman **${gasto_4x1000:,.2f}** en este recorte.")
 
-    # 8. LIBRO DE CAJA COMPLETO
     with st.expander("👀 Ver Libro de Caja Detallado (Datos Unificados)"):
         st.dataframe(df_f[['Fecha_Texto', 'Desc_Limpia', 'Cuenta', 'Monto_Neto', 'Centro_Costos_BI', 'Saldo_Neto']], use_container_width=True)
