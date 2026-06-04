@@ -3,20 +3,20 @@ import pandas as pd
 import plotly.express as px
 
 # 1. Configuración de la página
-st.set_page_config(page_title="goBIG Financiero v1.2", page_icon="💰", layout="wide")
+st.set_page_config(page_title="goBIG Financiero v1.3", page_icon="💰", layout="wide")
 
 # Barra Lateral con Identidad Continua
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
-    st.caption("v1.2 - Consola de Control Financiero")
-    st.info("💡 **Sistema Autoadaptable:** Esta versión detecta dinámicamente las pestañas y limpia los formatos de moneda automáticamente.")
+    st.caption("v1.3 - Consola de Control Financiero")
+    st.info("💡 **Sistema Autoadaptable:** Esta versión tolera pestañas truncadas por Excel y hojas vacías de cuentas nuevas de forma segura.")
 
 st.title("💰 Consola Financiera y Control de Caja")
 st.markdown("Consolidación bancaria unificada y auditoría contable avanzada.")
 st.markdown("---")
 
-# 2. Funciones de Limpieza Especializadas
+# 2. Funciones de Limpieza Especializadas de Dinero
 def clean_currency_global(value):
     """Convierte formatos de moneda COL o USA a número puro de forma segura."""
     if pd.isna(value) or str(value).strip() in ['', 'nan', 'None']: return 0.0
@@ -39,54 +39,69 @@ def clean_currency_global(value):
     except ValueError:
         return 0.0
 
-# 3. Motor de extracción con Búsqueda Flexible de Pestañas y Columnas
+# 3. Motor de extracción elástico a prueba de truncado y hojas vacías
 @st.cache_data(ttl=600)
 def load_financial_data():
     try:
         url_documento = "https://docs.google.com/spreadsheets/d/1ldntONNpWFgXPcF8VINDKzNAhG_vGMdzGEOESM3aLNU/export?format=xlsx"
         
-        # Abrimos el libro para inspeccionar las hojas reales
         xls = pd.ExcelFile(url_documento)
         sheet_names = xls.sheet_names
         
-        # Búsqueda elástica de hojas (Insensible a mayúsculas o espacios)
-        matches_bancolombia = [s for s in sheet_names if 'bancolombia' in s.lower()]
-        matches_bbva = [s for s in sheet_names if 'bbva' in s.lower()]
+        # SOLUCIÓN AL TRUNCADO: Buscamos por los códigos numéricos fijos que sobreviven a los 31 caracteres
+        matches_bancolombia = [s for s in sheet_names if s.startswith('01_')]
+        matches_bbva = [s for s in sheet_names if s.startswith('001')]
         
-        if not matches_bancolombia or not matches_bbva:
-            st.error(f"❌ Error de Estructura: No se encontraron las pestañas esperadas de los bancos. Hojas detectadas: {sheet_names}")
+        if not matches_bancolombia:
+            st.error(f"❌ Estructura Crítica: No se encontró la pestaña que inicia con '01_'. Hojas en Sheets: {sheet_names}")
             return pd.DataFrame()
             
+        # Carga segura de Bancolombia (Nuestra base de columnas guía)
         df_bancolombia = pd.read_excel(xls, sheet_name=matches_bancolombia[0], header=0)
         df_bancolombia['Cuenta'] = 'Bancolombia'
         
-        df_bbva = pd.read_excel(xls, sheet_name=matches_bbva[0], header=0)
+        # ESCUDO CONTRA HOJAS VACÍAS: Procesamos BBVA de forma ultra-defensiva
+        if matches_bbva:
+            try:
+                df_bbva_raw = pd.read_excel(xls, sheet_name=matches_bbva[0], header=0)
+                # Si la hoja no tiene filas o está en blanco, creamos un espejo seguro libre de errores
+                if df_bbva_raw.empty or len(df_bbva_raw.columns) < 2:
+                    df_bbva = pd.DataFrame(columns=df_bancolombia.columns)
+                    df_bbva.loc[0] = [None] * len(df_bancolombia.columns) # Fila vacía de control
+                else:
+                    df_bbva = df_bbva_raw.copy()
+            except Exception:
+                df_bbva = pd.DataFrame(columns=df_bancolombia.columns)
+        else:
+            df_bbva = pd.DataFrame(columns=df_bancolombia.columns)
+            
         df_bbva['Cuenta'] = 'BBVA'
         
-        # Unificamos el libro de caja
+        # Unificamos de forma segura
         df_caja = pd.concat([df_bancolombia, df_bbva], ignore_index=True)
         df_caja.columns = df_caja.columns.str.replace(r'\n', ' ', regex=True).str.strip()
         
-        # Búsqueda elástica de columnas críticas de dinero y tiempo
+        # Identificación elástica de columnas por contenido semántico
         matches_monto = [c for c in df_caja.columns if 'monto' in c.lower()]
         matches_saldo = [c for c in df_caja.columns if 'saldo' in c.lower()]
         matches_fecha = [c for c in df_caja.columns if 'fecha' in c.lower()]
         
         if not matches_monto or not matches_saldo or not matches_fecha:
-            st.error(f"❌ Error de Columnas: El extracto cambió de formato. Columnas leídas: {list(df_caja.columns)}")
+            st.error(f"❌ Error de Columnas: Verifique los nombres de los encabezados. Títulos leídos: {list(df_caja.columns)}")
             return pd.DataFrame()
             
-        # Normalización segura de tipos de datos
+        # Conversión y limpieza profunda de datos monetarios y cronológicos
         df_caja['Monto_Neto'] = df_caja[matches_monto[0]].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[matches_saldo[0]].apply(clean_currency_global)
         
         df_caja['Fecha del movimiento'] = pd.to_datetime(df_caja[matches_fecha[0]], errors='coerce', dayfirst=True)
+        # Mantenemos las celdas con fechas válidas, eliminando los registros de control vacíos
         df_caja = df_caja.dropna(subset=['Fecha del movimiento'])
         
         df_caja['Mes-Año'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m')
         df_caja['Fecha_Texto'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m-%d')
         
-        # Identificación flexible de columnas de notas y centros de costo
+        # Mapeo elástico de observaciones y centros de costos
         desc_cols = [c for c in df_caja.columns if 'descrip' in c.lower() or 'detalle' in c.lower()]
         cc_cols = [c for c in df_caja.columns if 'centro' in c.lower() or 'costo' in c.lower()]
         nota_cols = [c for c in df_caja.columns if 'nota' in c.lower()]
@@ -95,7 +110,6 @@ def load_financial_data():
         cc_col = cc_cols[0] if cc_cols else 'Centro de costos'
         nota_col = nota_cols[0] if nota_cols else 'Notas sobre el movimiento'
         
-        # Forzar existencia de columnas de control para evitar fallos por celdas vacías
         if cc_col not in df_caja.columns: df_caja[cc_col] = ''
         if nota_col not in df_caja.columns: df_caja[nota_col] = ''
         
@@ -103,7 +117,7 @@ def load_financial_data():
         df_caja['Nota_Limpia'] = df_caja[nota_col].astype(str).str.strip().str.lower()
         df_caja['Desc_Limpia'] = df_caja[desc_col].astype(str).str.strip()
         
-        # 🧠 CLASIFICACIÓN INTELIGENTE (Pauta, Fijos y Variables)
+        # 🧠 CLASIFICACIÓN INTELIGENTE (Mapeo de Reglas Jerárquicas)
         def clasificar(row):
             cc_manual = str(row['CC_Limpio']).strip()
             nota_manual = str(row['Nota_Limpia']).strip()
@@ -111,20 +125,20 @@ def load_financial_data():
             
             if cc_manual not in ['', 'nan', 'none']: return cc_manual.upper()
             
-            # Control estricto de Pauta Publicitaria
+            # Control de Pauta
             if any(x in desc for x in ['GOOGLE ADS', 'META ADS', 'FACEBOOK ADS', 'ADS']):
                 return f"PAUTA: {nota_manual.upper()}" if nota_manual not in ['', 'nan'] else "ALERTA: PAUTA SIN CLIENTE"
             
-            # Gastos Fijos Mapeados Automáticamente
+            # Gastos Fijos
             if 'WORKSPACE' in desc or 'GOOGLE *' in desc: return 'SOFTWARE (INTERNO)'
             if 'CANVA' in desc: return 'SOFTWARE (INTERNO)'
             if '4X1000' in desc or 'GOBIERNO' in desc: return 'IMPUESTOS BANCARIOS'
-            if 'DIAN' in desc: return 'IMPUESTOS DIAN'
+            if 'DIAN' in desc or 'IMPUESTO' in desc: return 'IMPUESTOS DIAN'
             if 'ARRIENDO' in desc: return 'OFICINA'
             if 'NEQUI' in desc and ('CONTADORA' in desc or 'CONTABIL' in desc): return 'HONORARIOS'
             if 'INTERBANC' in desc: return 'INGRESOS CLIENTES'
             
-            # Captura de Sospechas Variables (Uber y Comidas)
+            # Gastos Variables Sospechosos
             if any(x in desc for x in ['UBER', 'DIDI', 'CABIFY']): return 'POR CLASIFICAR - TRANSPORTE'
             if any(x in desc for x in ['RESTAURANTE', 'ALMUERZO', 'CAFE', 'D1', 'ATELIER', 'SAN GIORGI']): return 'POR CLASIFICAR - ALIMENTACIÓN'
             
@@ -140,7 +154,7 @@ def load_financial_data():
         st.error(f"Error técnico profundo: {e}")
         return pd.DataFrame()
 
-# 4. Construcción de Interfaz
+# 4. Construcción de Interfaz Visual
 if st.button("🔄 Actualizar Datos Financieros"):
     st.cache_data.clear()
 
@@ -163,7 +177,6 @@ if not df_caja.empty:
     st.subheader("📊 Resumen de Flujo de Caja")
     k1, k2, k3, k4 = st.columns(4)
     
-    # Cálculo seguro de los últimos saldos disponibles
     df_ban_c = df_caja[df_caja['Cuenta'] == 'Bancolombia']
     df_bbva_c = df_caja[df_caja['Cuenta'] == 'BBVA']
     
@@ -181,7 +194,7 @@ if not df_caja.empty:
     flujo = df_f['Ingreso ($)'].sum() - df_f['Egreso ($)'].sum()
     k4.metric("Flujo Neto Caja", f"${flujo:,.2f}", delta=f"${flujo:,.2f}")
 
-    # 7. PANEL DE AUDITORÍA (SEMAFOROS INTERACTIVOS)
+    # 7. PANEL DE AUDITORÍA (SEMÁFOROS INTERACTIVOS)
     st.subheader("🚨 Auditoría Contable Automatizada")
     alertas = df_f[df_f['Centro_Costos_BI'].str.contains('POR CLASIFICAR|ALERTA')]
     
