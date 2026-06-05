@@ -3,20 +3,20 @@ import pandas as pd
 import plotly.express as px
 
 # 1. Configuración de la página
-st.set_page_config(page_title="goBIG Financiero v1.4", page_icon="💰", layout="wide")
+st.set_page_config(page_title="goBIG Financiero v1.5", page_icon="💰", layout="wide")
 
 # Barra Lateral con Identidad Continua
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
-    st.caption("v1.4 - Consola de Control Financiero")
-    st.info("💡 **Actualización:** Motor de fechas blindado contra formatos de banco incompletos y años fantasma.")
+    st.caption("v1.5 - Consola de Control Financiero")
+    st.info("💡 **Actualización:** Sistema de auto-rescate de fechas invertidas por el banco.")
 
 st.title("💰 Consola Financiera y Control de Caja")
 st.markdown("Consolidación bancaria unificada y auditoría contable avanzada.")
 st.markdown("---")
 
-# 2. Funciones de Limpieza Especializadas (Dinero y Fechas)
+# 2. Funciones de Limpieza Especializadas
 def clean_currency_global(value):
     if pd.isna(value) or str(value).strip() in ['', 'nan', 'None']: return 0.0
     val_str = str(value).replace('$', '').replace(' ', '').strip()
@@ -36,23 +36,18 @@ def clean_currency_global(value):
         return 0.0
 
 def clean_financial_dates(date_series):
-    """Escudo cronológico: repara fechas incompletas de bancos y fuerza formato latino."""
     def fix_string(d):
         if pd.isna(d): return pd.NaT
         d = str(d).strip()
         if not d or d.lower() in ['nan', 'none', 'nat']: return pd.NaT
-        
-        # Arreglo para extractos bancarios que solo botan Día/Mes (Ej: '16/04')
         if len(d) <= 5 and '/' in d:
             parts = d.split('/')
             if len(parts) == 2:
-                d = f"{parts[0]}/{parts[1]}/2026"  # Inyectamos el año
-                
+                d = f"{parts[0]}/{parts[1]}/2026"
         d = d.replace('-', '/')
         return d
 
     cleaned = date_series.apply(fix_string)
-    # format='mixed' permite leer formatos cruzados, dayfirst=True prioriza DD/MM
     parsed = pd.to_datetime(cleaned, format='mixed', dayfirst=True, errors='coerce')
     return parsed
 
@@ -69,7 +64,7 @@ def load_financial_data():
         matches_bbva = [s for s in sheet_names if s.startswith('001')]
         
         if not matches_bancolombia:
-            st.error(f"❌ No se encontró la pestaña que inicia con '01_'.")
+            st.error("❌ No se encontró la pestaña que inicia con '01_'.")
             return pd.DataFrame()
             
         df_bancolombia = pd.read_excel(xls, sheet_name=matches_bancolombia[0], header=0)
@@ -97,19 +92,30 @@ def load_financial_data():
         matches_saldo = [c for c in df_caja.columns if 'saldo' in c.lower()]
         matches_fecha = [c for c in df_caja.columns if 'fecha' in c.lower()]
         
-        if not matches_monto or not matches_saldo or not matches_fecha:
-            st.error(f"❌ Error de Columnas: Verifique los nombres. Títulos: {list(df_caja.columns)}")
-            return pd.DataFrame()
-            
         df_caja['Monto_Neto'] = df_caja[matches_monto[0]].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[matches_saldo[0]].apply(clean_currency_global)
         
-        # 🛡️ Aplicamos el escudo cronológico
+        # 🛡️ Aplicamos el escudo cronológico base
         df_caja['Fecha del movimiento'] = clean_financial_dates(df_caja[matches_fecha[0]])
-        
-        # BARRERA ANTI-FANTASMAS: Destruimos años imposibles (como 0001) o celdas vacías
         df_caja = df_caja.dropna(subset=['Fecha del movimiento'])
         df_caja = df_caja[df_caja['Fecha del movimiento'].dt.year >= 2020]
+        
+        # 🚀 AUTO-RESCATE DE FECHAS INVERTIDAS
+        limite_hoy = pd.Timestamp.today() + pd.Timedelta(days=1) # Margen de seguridad por zona horaria
+        
+        def rescatar_fecha(dt):
+            if dt > limite_hoy:
+                try:
+                    # Invertimos mes y día para rescatar la transacción
+                    return dt.replace(month=dt.day, day=dt.month)
+                except ValueError:
+                    return dt
+            return dt
+            
+        df_caja['Fecha del movimiento'] = df_caja['Fecha del movimiento'].apply(rescatar_fecha)
+        
+        # Último filtro: Destruir bloqueos irremediables del futuro
+        df_caja = df_caja[df_caja['Fecha del movimiento'] <= limite_hoy]
         
         df_caja['Mes-Año'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m')
         df_caja['Fecha_Texto'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m-%d')
@@ -129,17 +135,15 @@ def load_financial_data():
         df_caja['Nota_Limpia'] = df_caja[nota_col].astype(str).str.strip().str.lower()
         df_caja['Desc_Limpia'] = df_caja[desc_col].astype(str).str.strip()
         
-        # 🧠 CLASIFICACIÓN (La optimizaremos con el diccionario en la próxima sesión)
+        # Clasificación Manual Actual
         def clasificar(row):
             cc_manual = str(row['CC_Limpio']).strip()
             nota_manual = str(row['Nota_Limpia']).strip()
             desc = str(row['Desc_Limpia']).upper()
             
             if cc_manual not in ['', 'nan', 'none']: return cc_manual.upper()
-            
             if any(x in desc for x in ['GOOGLE ADS', 'META ADS', 'FACEBOOK ADS', 'ADS']):
                 return f"PAUTA: {nota_manual.upper()}" if nota_manual not in ['', 'nan'] else "ALERTA: PAUTA SIN CLIENTE"
-            
             if 'WORKSPACE' in desc or 'GOOGLE *' in desc: return 'SOFTWARE (INTERNO)'
             if 'CANVA' in desc: return 'SOFTWARE (INTERNO)'
             if '4X1000' in desc or 'GOBIERNO' in desc: return 'IMPUESTOS BANCARIOS'
@@ -147,10 +151,8 @@ def load_financial_data():
             if 'ARRIENDO' in desc: return 'OFICINA'
             if 'NEQUI' in desc and ('CONTADORA' in desc or 'CONTABIL' in desc): return 'HONORARIOS'
             if 'INTERBANC' in desc: return 'INGRESOS CLIENTES'
-            
             if any(x in desc for x in ['UBER', 'DIDI', 'CABIFY']): return 'POR CLASIFICAR - TRANSPORTE'
             if any(x in desc for x in ['RESTAURANTE', 'ALMUERZO', 'CAFE', 'D1', 'ATELIER', 'SAN GIORGI']): return 'POR CLASIFICAR - ALIMENTACIÓN'
-            
             return 'POR CLASIFICAR - GENERAL' if row['Monto_Neto'] < 0 else 'OTROS INGRESOS'
             
         df_caja['Centro_Costos_BI'] = df_caja.apply(clasificar, axis=1)
@@ -167,13 +169,12 @@ def load_financial_data():
 if st.button("🔄 Actualizar Datos Financieros"):
     st.cache_data.clear()
 
-with st.spinner("Ejecutando escudo de fechas y limpieza de saldos..."):
+with st.spinner("Rescatando fechas invertidas por el banco..."):
     df_caja = load_financial_data()
 
 if not df_caja.empty:
     c1, c2, c3 = st.columns(3)
     cuenta_sel = c1.selectbox("Filtrar Cuenta:", ["Consolidado (Ambas)", "Bancolombia", "BBVA"])
-    # Alerta resuelta: Los meses locos ya no existirán en este menú
     mes_sel = c2.selectbox("Filtrar por Mes:", ["Todos"] + sorted(list(df_caja['Mes-Año'].unique()), reverse=True))
     cc_sel = c3.selectbox("Filtrar por Centro Costos:", ["Todos"] + sorted(list(df_caja['Centro_Costos_BI'].unique())))
     
