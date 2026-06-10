@@ -3,14 +3,14 @@ import pandas as pd
 import plotly.express as px
 
 # 1. Configuración de la página
-st.set_page_config(page_title="goBIG Financiero v1.5", page_icon="💰", layout="wide")
+st.set_page_config(page_title="goBIG Financiero v1.6", page_icon="💰", layout="wide")
 
 # Barra Lateral con Identidad Continua
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
-    st.caption("v1.5 - Consola de Control Financiero")
-    st.info("💡 **Actualización:** Sistema de auto-rescate de fechas invertidas por el banco.")
+    st.caption("v1.6 - Consola de Control Financiero")
+    st.info("💡 **Actualización:** Motor cronológico estricto con lectura de columna de 'Año'.")
 
 st.title("💰 Consola Financiera y Control de Caja")
 st.markdown("Consolidación bancaria unificada y auditoría contable avanzada.")
@@ -35,23 +35,7 @@ def clean_currency_global(value):
     except ValueError:
         return 0.0
 
-def clean_financial_dates(date_series):
-    def fix_string(d):
-        if pd.isna(d): return pd.NaT
-        d = str(d).strip()
-        if not d or d.lower() in ['nan', 'none', 'nat']: return pd.NaT
-        if len(d) <= 5 and '/' in d:
-            parts = d.split('/')
-            if len(parts) == 2:
-                d = f"{parts[0]}/{parts[1]}/2026"
-        d = d.replace('-', '/')
-        return d
-
-    cleaned = date_series.apply(fix_string)
-    parsed = pd.to_datetime(cleaned, format='mixed', dayfirst=True, errors='coerce')
-    return parsed
-
-# 3. Motor de extracción elástico
+# 3. Motor de extracción elástico y cronológico
 @st.cache_data(ttl=600)
 def load_financial_data():
     try:
@@ -85,37 +69,44 @@ def load_financial_data():
             
         df_bbva['Cuenta'] = 'BBVA'
         
+        # Unificar (pandas alinea las columnas por nombre automáticamente)
         df_caja = pd.concat([df_bancolombia, df_bbva], ignore_index=True)
         df_caja.columns = df_caja.columns.str.replace(r'\n', ' ', regex=True).str.strip()
         
         matches_monto = [c for c in df_caja.columns if 'monto' in c.lower()]
         matches_saldo = [c for c in df_caja.columns if 'saldo' in c.lower()]
         matches_fecha = [c for c in df_caja.columns if 'fecha' in c.lower()]
+        matches_ano = [c for c in df_caja.columns if 'año' in c.lower() or 'ano' in c.lower() or 'year' in c.lower()]
         
         df_caja['Monto_Neto'] = df_caja[matches_monto[0]].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[matches_saldo[0]].apply(clean_currency_global)
         
-        # 🛡️ Aplicamos el escudo cronológico base
-        df_caja['Fecha del movimiento'] = clean_financial_dates(df_caja[matches_fecha[0]])
-        df_caja = df_caja.dropna(subset=['Fecha del movimiento'])
-        df_caja = df_caja[df_caja['Fecha del movimiento'].dt.year >= 2020]
+        # 🛡️ ESCUDO DE FECHAS ESTRICTO CON COLUMNA AÑO
+        date_col_name = matches_fecha[0] if matches_fecha else None
+        year_col_name = matches_ano[0] if matches_ano else None
         
-        # 🚀 AUTO-RESCATE DE FECHAS INVERTIDAS
-        limite_hoy = pd.Timestamp.today() + pd.Timedelta(days=1) # Margen de seguridad por zona horaria
-        
-        def rescatar_fecha(dt):
-            if dt > limite_hoy:
-                try:
-                    # Invertimos mes y día para rescatar la transacción
-                    return dt.replace(month=dt.day, day=dt.month)
-                except ValueError:
-                    return dt
-            return dt
+        def fix_strict_date(row):
+            if not date_col_name: return pd.NaT
+            d = str(row[date_col_name]).strip().replace('-', '/')
+            if d.lower() in ['nan', 'none', 'nat', '']: return pd.NaT
             
-        df_caja['Fecha del movimiento'] = df_caja['Fecha del movimiento'].apply(rescatar_fecha)
+            y = str(row[year_col_name]).strip() if year_col_name else "2026"
+            if '.' in y: y = y.split('.')[0] # Limpiar si viene como 2026.0
+            if not y.isdigit() or len(y) != 4: y = "2026" # Fallback de seguridad
+            
+            # Autocompletado si el banco exportó solo Día/Mes
+            if len(d) <= 5 and '/' in d:
+                parts = d.split('/')
+                if len(parts) == 2:
+                    d = f"{parts[0]}/{parts[1]}/{y}"
+            return d
+
+        cleaned_dates = df_caja.apply(fix_strict_date, axis=1)
+        # Forzamos dayfirst=True para garantizar lectura latina estricta
+        df_caja['Fecha del movimiento'] = pd.to_datetime(cleaned_dates, format='mixed', dayfirst=True, errors='coerce')
         
-        # Último filtro: Destruir bloqueos irremediables del futuro
-        df_caja = df_caja[df_caja['Fecha del movimiento'] <= limite_hoy]
+        df_caja = df_caja.dropna(subset=['Fecha del movimiento'])
+        df_caja = df_caja[df_caja['Fecha del movimiento'].dt.year >= 2020] # Filtro Anti-Fantasmas
         
         df_caja['Mes-Año'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m')
         df_caja['Fecha_Texto'] = df_caja['Fecha del movimiento'].dt.strftime('%Y-%m-%d')
@@ -135,7 +126,7 @@ def load_financial_data():
         df_caja['Nota_Limpia'] = df_caja[nota_col].astype(str).str.strip().str.lower()
         df_caja['Desc_Limpia'] = df_caja[desc_col].astype(str).str.strip()
         
-        # Clasificación Manual Actual
+        # Clasificación Manual Actual (Próximo paso: El Diccionario)
         def clasificar(row):
             cc_manual = str(row['CC_Limpio']).strip()
             nota_manual = str(row['Nota_Limpia']).strip()
@@ -169,7 +160,7 @@ def load_financial_data():
 if st.button("🔄 Actualizar Datos Financieros"):
     st.cache_data.clear()
 
-with st.spinner("Rescatando fechas invertidas por el banco..."):
+with st.spinner("Ensamblando meses correctamente..."):
     df_caja = load_financial_data()
 
 if not df_caja.empty:
