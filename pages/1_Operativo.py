@@ -3,13 +3,13 @@ import pandas as pd
 import plotly.express as px
 
 # 1. Configuración de la página (El tema se adaptará automáticamente al modo oscuro del sistema/app)
-st.set_page_config(page_title="goBIG Operativo v1.0", page_icon="📈", layout="wide")
+st.set_page_config(page_title="goBIG Operativo v1.1", page_icon="📈", layout="wide")
 
 # 2. Barra Lateral: Logo Oficial de goBIG e Identidad
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
-    st.caption("v1.0 - Dashboard de Inteligencia Operativa")
+    st.caption("v1.1 - Dashboard de Inteligencia Operativa")
     st.info("💡 **Consejo:** Filtra por mes para ver la rentabilidad exacta frente a la nómina fija.")
 
 # 3. Encabezado Principal
@@ -153,10 +153,29 @@ if not df.empty:
         fig2.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False)
         st.plotly_chart(fig2, use_container_width=True)
 
-    st.write("**🌿 Taxonomía de Tareas (Costo por Actividad en Clientes)**")
-    df_t2 = df_f.groupby(['Nombre del cliente', 'Tipo de tarea']).agg({'Valor Invertido ($)': 'sum'}).reset_index()
-    fig3 = px.treemap(df_t2, path=['Nombre del cliente', 'Tipo de tarea'], values='Valor Invertido ($)', color='Tipo de tarea', color_discrete_sequence=px.colors.qualitative.Safe)
-    fig3.update_traces(texttemplate="%{label}<br>$%{value:,.0f}")
+    # --- NUEVA TAXONOMÍA DE TAREAS MEJORADA (COSTOS + HORAS REALES) ---
+    st.write("**🌿 Taxonomía de Tareas (Costo por Actividad en Clientes con Horas de Esfuerzo)**")
+    
+    # Agrupamos sumando tanto el dinero (Valor Invertido ($)) como el tiempo real de esfuerzo
+    df_t2 = df_f.groupby(['Nombre del cliente', 'Tipo de tarea']).agg({'Valor Invertido ($)': 'sum', 'Tiempo real': 'sum'}).reset_index()
+    
+    # Creamos el treemap alimentando el 'Tiempo real' como custom_data para poder renderizarlo en la etiqueta
+    fig3 = px.treemap(
+        df_t2, 
+        path=['Nombre del cliente', 'Tipo de tarea'], 
+        values='Valor Invertido ($)', 
+        custom_data=['Tiempo real'],
+        color='Tipo de tarea', 
+        color_discrete_sequence=px.colors.qualitative.Safe
+    )
+    
+    # Actualizamos las etiquetas de los bloques para mostrar Nombre de Tarea, Costo ($) y Esfuerzo (Hrs)
+    fig3.update_traces(
+        texttemplate="<b>%{label}</b><br>Costo: $%{value:,.0f}<br>Esfuerzo: %{customdata[0]:.1f} h",
+        textposition="middle center",
+        hovertemplate="<b>%{label}</b><br>Costo: $%{value:,.0f}<br>Esfuerzo: %{customdata[0]:.1f} h<extra></extra>"
+    )
+    
     fig3.update_layout(margin=dict(t=10, l=10, r=10, b=10))
     st.plotly_chart(fig3, use_container_width=True)
 
