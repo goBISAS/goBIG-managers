@@ -3,13 +3,13 @@ import pandas as pd
 import plotly.express as px
 
 # 1. Configuración de la página (El tema se adaptará automáticamente al modo oscuro del sistema/app)
-st.set_page_config(page_title="goBIG Operativo v1.1", page_icon="📈", layout="wide")
+st.set_page_config(page_title="goBIG Operativo v1.2", page_icon="📈", layout="wide")
 
 # 2. Barra Lateral: Logo Oficial de goBIG e Identidad
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
-    st.caption("v1.1 - Dashboard de Inteligencia Operativa")
+    st.caption("v1.2 - Dashboard de Inteligencia Operativa")
     st.info("💡 **Consejo:** Filtra por mes para ver la rentabilidad exacta frente a la nómina fija.")
 
 # 3. Encabezado Principal
@@ -136,11 +136,28 @@ if not df.empty:
     g1, g2 = st.columns(2)
     
     with g1:
+        # --- MEJORA: CONCENTRACIÓN DE VALOR POR CLIENTE (COSTOS + HORAS) ---
         st.write("**¼ Concentración de Valor por Cliente**")
-        df_t1 = df_f.groupby('Nombre del cliente').agg({'Valor Invertido ($)': 'sum'}).reset_index()
+        
+        # Agrupamos sumando tanto el dinero invertido como las horas netas reales por cliente
+        df_t1 = df_f.groupby('Nombre del cliente').agg({'Valor Invertido ($)': 'sum', 'Tiempo real': 'sum'}).reset_index()
         total_m = df_t1['Valor Invertido ($)'].sum()
-        df_t1['Etiqueta'] = df_t1['Nombre del cliente'] + "<br>$" + df_t1['Valor Invertido ($)'].map('{:,.0f}'.format) + "<br>" + (df_t1['Valor Invertido ($)']/total_m*100).round(1).astype(str) + "%"
-        fig1 = px.treemap(df_t1, path=['Etiqueta'], values='Valor Invertido ($)', color='Valor Invertido ($)', color_continuous_scale='Blues')
+        
+        # Diseñamos la etiqueta híbrida con saltos de línea para mostrar: Cliente, Costo, Esfuerzo y % de Part.
+        df_t1['Etiqueta'] = (
+            "<b>" + df_t1['Nombre del cliente'] + "</b>" +
+            "<br>Costo: $" + df_t1['Valor Invertido ($)'].map('{:,.0f}'.format) +
+            "<br>Esfuerzo: " + df_t1['Tiempo real'].map('{:,.1f} h'.format) +
+            "<br>Part: " + (df_t1['Valor Invertido ($)'] / total_m * 100).round(1).astype(str) + "%"
+        )
+        
+        fig1 = px.treemap(
+            df_t1, 
+            path=['Etiqueta'], 
+            values='Valor Invertido ($)', 
+            color='Valor Invertido ($)', 
+            color_continuous_scale='Blues'
+        )
         fig1.update_traces(textinfo="label")
         fig1.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False)
         st.plotly_chart(fig1, use_container_width=True)
@@ -153,13 +170,10 @@ if not df.empty:
         fig2.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False)
         st.plotly_chart(fig2, use_container_width=True)
 
-    # --- NUEVA TAXONOMÍA DE TAREAS MEJORADA (COSTOS + HORAS REALES) ---
+    # --- TAXONOMÍA DE TAREAS (COSTOS + HORAS REALES) ---
     st.write("**🌿 Taxonomía de Tareas (Costo por Actividad en Clientes con Horas de Esfuerzo)**")
-    
-    # Agrupamos sumando tanto el dinero (Valor Invertido ($)) como el tiempo real de esfuerzo
     df_t2 = df_f.groupby(['Nombre del cliente', 'Tipo de tarea']).agg({'Valor Invertido ($)': 'sum', 'Tiempo real': 'sum'}).reset_index()
     
-    # Creamos el treemap alimentando el 'Tiempo real' como custom_data para poder renderizarlo en la etiqueta
     fig3 = px.treemap(
         df_t2, 
         path=['Nombre del cliente', 'Tipo de tarea'], 
@@ -169,7 +183,6 @@ if not df.empty:
         color_discrete_sequence=px.colors.qualitative.Safe
     )
     
-    # Actualizamos las etiquetas de los bloques para mostrar Nombre de Tarea, Costo ($) y Esfuerzo (Hrs)
     fig3.update_traces(
         texttemplate="<b>%{label}</b><br>Costo: $%{value:,.0f}<br>Esfuerzo: %{customdata[0]:.1f} h",
         textposition="middle center",
