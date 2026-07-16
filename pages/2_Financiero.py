@@ -49,14 +49,21 @@ def load_all_financials():
         s_fijos = [s for s in sheet_names if s.startswith('05_')]
         s_dicc = [s for s in sheet_names if s.startswith('06_')]
 
-        # --- A. DICCIONARIO DE CLASIFICACIÓN ---
-        dicc_reglas = {}
+        # --- A. DICCIONARIO DE CLASIFICACIÓN AVANZADO (ORDEN INDIFERENTE) ---
+        reglas_procesadas = []
         if s_dicc:
             df_d = pd.read_excel(xls, sheet_name=s_dicc[0])
             if len(df_d.columns) >= 2:
                 df_d = df_d.dropna(subset=[df_d.columns[0]])
-                dicc_reglas = dict(zip(df_d.iloc[:,0].astype(str).str.upper().str.strip(), 
-                                       df_d.iloc[:,1].astype(str).str.upper().str.strip()))
+                for _, row in df_d.iterrows():
+                    patron = str(row.iloc[0]).upper().strip()
+                    cc = str(row.iloc[1]).upper().strip()
+                    if patron != 'NAN' and patron != '':
+                        reglas_procesadas.append((patron, cc))
+                
+                # AUTO-PRIORIZACIÓN: Ordena las reglas automáticamente de la más específica a la más general.
+                # Prioriza patrones que tengan un '+' (and) y luego por longitud de caracteres (frases más largas primero).
+                reglas_procesadas.sort(key=lambda x: (x[0].count('+') > 0, len(x[0])), reverse=True)
 
         # --- B. BANCOS (FLUJO REAL) ---
         if not s_banco: return pd.DataFrame(), pd.DataFrame(), pd.DataFrame()
@@ -138,17 +145,48 @@ def load_all_financials():
         df_caja['Desc_Limpia'] = df_caja[c_desc].astype(str).str.strip().str.upper()
         df_caja['CC_Manual'] = df_caja[c_cc].astype(str).str.strip().str.upper()
 
-        # MOTOR DE CLASIFICACIÓN CON DICCIONARIO
+        # MOTOR DE CLASIFICACIÓN CON SUPERPODERES Y LÓGICA BOOLEANA
         def auto_clasificar(row):
             desc = row['Desc_Limpia']
             cc_man = row['CC_Manual']
             
-            # 1. Buscar en diccionario
-            for palabra, cc_auto in dicc_reglas.items():
-                if palabra != 'NAN' and palabra in desc:
+            # 1. Buscar en el listado de reglas procesadas y auto-ordenadas por prioridad
+            for patron, cc_auto in reglas_procesadas:
+                match = False
+                
+                # Caso AND: "+" (Exige que todas las partes estén presentes)
+                if '+' in patron:
+                    partes = [p.strip() for p in patron.split('+')]
+                    cumple_todas = True
+                    for parte in partes:
+                        # Cada parte del AND puede contener un OR "|"
+                        if '|' in parte:
+                            subpartes = [sp.strip() for sp in parte.split('|')]
+                            if not any(sp in desc for sp in subpartes if sp):
+                                cumple_todas = False
+                                break
+                        else:
+                            if parte not in desc:
+                                cumple_todas = False
+                                break
+                    if cumple_todas:
+                        match = True
+                
+                # Caso OR: "|" (Exige que al menos una parte esté presente)
+                elif '|' in patron:
+                    partes = [p.strip() for p in patron.split('|')]
+                    if any(p in desc for p in partes if p):
+                        match = True
+                
+                # Caso Normal: Búsqueda de palabra o frase exacta
+                else:
+                    if patron in desc:
+                        match = True
+                
+                if match:
                     return cc_auto
                     
-            # 2. Respetar input manual
+            # 2. Respetar input manual si no hubo coincidencia automática o no se encontró regla
             if cc_man not in ['', 'NAN', 'NONE']: return cc_man
             
             # 3. Reglas por defecto
