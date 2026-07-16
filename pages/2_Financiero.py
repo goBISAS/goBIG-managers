@@ -81,20 +81,52 @@ def load_all_financials():
         df_caja['Monto_Neto'] = df_caja[c_monto].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[c_saldo].apply(clean_currency_global)
         
+        # --- DETECTIVE DE FECHAS INTELIGENTE ---
         def fix_strict_date(row):
             if not c_fecha: return pd.NaT
             d = str(row[c_fecha]).strip().replace('-', '/')
             if d.lower() in ['nan', 'none', 'nat', '']: return pd.NaT
+            
+            # Obtener el año de tu columna "Año del movimiento"
             y = str(row[c_ano]).strip() if c_ano else "2026"
             if '.' in y: y = y.split('.')[0]
             if not y.isdigit() or len(y) != 4: y = "2026"
-            if len(d) <= 5 and '/' in d:
-                p = d.split('/')
-                if len(p) == 2: d = f"{p[0]}/{p[1]}/{y}"
-            return d
+            
+            parts = d.split('/')
+            
+            # Caso de 2 partes (ej: "13/03") -> Siempre es Día/Mes
+            if len(parts) == 2:
+                try:
+                    p1, p2 = int(parts[0]), int(parts[1])
+                    return f"{y}-{p2:02d}-{p1:02d}"
+                except ValueError:
+                    return pd.NaT
+            
+            # Caso de 3 partes (ej: "1/9/2026" o "11/3/2026")
+            elif len(parts) == 3:
+                try:
+                    p1, p2 = int(parts[0]), int(parts[1])
+                    
+                    # Si el primer número es 1 (Enero), sabemos que es formato US (Mes/Día/Año)
+                    # porque existen transacciones con "1/13/2026" (no hay mes 13).
+                    if p1 == 1:
+                        month = 1
+                        day = p2
+                    else:
+                        # Para otros meses (como marzo), el primer número es el día y el segundo el mes
+                        # Ej: "11/3/2026" -> Día 11, Mes 3
+                        day = p1
+                        month = p2
+                    return f"{y}-{month:02d}-{day:02d}"
+                except ValueError:
+                    return pd.NaT
+            
+            return pd.NaT
 
-        df_caja['Fecha_OK'] = pd.to_datetime(df_caja.apply(fix_strict_date, axis=1), format='mixed', dayfirst=True, errors='coerce')
+        # Convertimos las fechas de forma segura usando nuestro procesador ISO
+        df_caja['Fecha_OK'] = pd.to_datetime(df_caja.apply(fix_strict_date, axis=1), errors='coerce')
         df_caja = df_caja.dropna(subset=['Fecha_OK'])
+        
         df_caja['Mes-Año'] = df_caja['Fecha_OK'].dt.strftime('%Y-%m')
         df_caja['Mes_Num'] = df_caja['Fecha_OK'].dt.month
         df_caja['Año_Num'] = df_caja['Fecha_OK'].dt.year
@@ -199,7 +231,7 @@ if not df_caja.empty:
     k2.metric("Egresos (Banco)", f"${egresos:,.0f}")
     k3.metric("Flujo Neto Mes", f"${flujo:,.0f}", delta=f"${flujo:,.0f}")
     
-    # SOLUCIÓN PUNTO 1: ¿Por qué dio negativo? Desglose visual
+    # Desglose visual de egresos
     if egresos > 0:
         st.write("**¿En qué se fue el dinero este mes? (Desglose de Egresos Reales)**")
         df_egresos = df_f[df_f['Egreso ($)'] > 0].groupby('Centro_Costos_BI')['Egreso ($)'].sum().reset_index()
@@ -211,7 +243,7 @@ if not df_caja.empty:
         fig_egresos.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False, height=400)
         st.plotly_chart(fig_egresos, use_container_width=True)
 
-    # SOLUCIÓN PUNTO 2 y 3: Proyección Teórica
+    # Proyección Teórica
     st.markdown("---")
     st.subheader("📋 Auditoría Teórica (Lo que debió costar vs Banco)")
     
@@ -232,12 +264,10 @@ if not df_caja.empty:
     with t2:
         # Cálculo Costos Fijos Históricos
         if not df_fijos.empty:
-            # Filtrar filas cuyo mes inicio sea <= mes_actual y mes fin sea vacío o >= mes_actual
             fijos_activos = df_fijos[
                 (df_fijos['M_Inicio_Num'] <= mes_num_sel) & 
                 (df_fijos['M_Fin_Num'].isna() | (df_fijos['M_Fin_Num'] >= mes_num_sel))
             ]
-            # Omitimos la fila "fantasma" de nómina total que tú pones a mano en Sheets
             fijos_activos = fijos_activos[~fijos_activos[fijos_activos.columns[0]].astype(str).str.contains("Nómina", case=False, na=False)]
             
             total_fijos = fijos_activos['Monto_Limpio'].sum()
@@ -254,3 +284,6 @@ if not df_caja.empty:
         st.dataframe(alertas[['Fecha_OK', 'Desc_Limpia', 'Monto_Neto', 'Centro_Costos_BI']], use_container_width=True)
     else:
         st.success("🟢 ¡Excelente! El 100% de los gastos de este mes fueron clasificados exitosamente por el Diccionario y tu ingreso manual.")
+            
+else:
+    st.warning("Sin datos para mostrar. Verifique las fuentes en Google Sheets.")
