@@ -114,14 +114,10 @@ def load_all_financials():
                 try:
                     p1, p2 = int(parts[0]), int(parts[1])
                     
-                    # Si el primer número es 1 (Enero), sabemos que es formato US (Mes/Día/Año)
-                    # porque existen transacciones con "1/13/2026" (no hay mes 13).
                     if p1 == 1:
                         month = 1
                         day = p2
                     else:
-                        # Para otros meses (como marzo), el primer número es el día y el segundo el mes
-                        # Ej: "11/3/2026" -> Día 11, Mes 3
                         day = p1
                         month = p2
                     return f"{y}-{month:02d}-{day:02d}"
@@ -130,7 +126,6 @@ def load_all_financials():
             
             return pd.NaT
 
-        # Convertimos las fechas de forma segura usando nuestro procesador ISO
         df_caja['Fecha_OK'] = pd.to_datetime(df_caja.apply(fix_strict_date, axis=1), errors='coerce')
         df_caja = df_caja.dropna(subset=['Fecha_OK'])
         
@@ -154,12 +149,10 @@ def load_all_financials():
             for patron, cc_auto in reglas_procesadas:
                 match = False
                 
-                # Caso AND: "+" (Exige que todas las partes estén presentes)
                 if '+' in patron:
                     partes = [p.strip() for p in patron.split('+')]
                     cumple_todas = True
                     for parte in partes:
-                        # Cada parte del AND puede contener un OR "|"
                         if '|' in parte:
                             subpartes = [sp.strip() for sp in parte.split('|')]
                             if not any(sp in desc for sp in subpartes if sp):
@@ -171,14 +164,10 @@ def load_all_financials():
                                 break
                     if cumple_todas:
                         match = True
-                
-                # Caso OR: "|" (Exige que al menos una parte esté presente)
                 elif '|' in patron:
                     partes = [p.strip() for p in patron.split('|')]
                     if any(p in desc for p in partes if p):
                         match = True
-                
-                # Caso Normal: Búsqueda de palabra o frase exacta
                 else:
                     if patron in desc:
                         match = True
@@ -186,10 +175,7 @@ def load_all_financials():
                 if match:
                     return cc_auto
                     
-            # 2. Respetar input manual si no hubo coincidencia automática o no se encontró regla
             if cc_man not in ['', 'NAN', 'NONE']: return cc_man
-            
-            # 3. Reglas por defecto
             if 'ARRIENDO' in desc: return 'OFICINA'
             return 'POR CLASIFICAR - GENERAL' if row['Monto_Neto'] < 0 else 'OTROS INGRESOS'
 
@@ -269,15 +255,21 @@ if not df_caja.empty:
     k2.metric("Egresos (Banco)", f"${egresos:,.0f}")
     k3.metric("Flujo Neto Mes", f"${flujo:,.0f}", delta=f"${flujo:,.0f}")
     
-    # Desglose visual de egresos
+    # --- GRÁFICO CORREGIDO: Formateo Nativo de Plotly ---
     if egresos > 0:
         st.write("**¿En qué se fue el dinero este mes? (Desglose de Egresos Reales)**")
         df_egresos = df_f[df_f['Egreso ($)'] > 0].groupby('Centro_Costos_BI')['Egreso ($)'].sum().reset_index()
-        fig_egresos = px.bar(df_egresos.sort_values('Egreso ($)', ascending=True), 
+        
+        # Ordenamos los datos de menor a mayor antes de pasarlos a Plotly
+        df_egresos_sorted = df_egresos.sort_values('Egreso ($)', ascending=True)
+        
+        fig_egresos = px.bar(df_egresos_sorted, 
                              x='Egreso ($)', y='Centro_Costos_BI', orientation='h', 
-                             text=df_egresos['Egreso ($)'].map('${:,.0f}'.format),
+                             text='Egreso ($)', # Aquí usamos la columna nativa
                              color='Egreso ($)', color_continuous_scale='Reds')
-        fig_egresos.update_traces(textposition='outside')
+                             
+        # Le aplicamos el formato de moneda directamente en el texttemplate para que nunca se desalinee
+        fig_egresos.update_traces(texttemplate='$%{text:,.0f}', textposition='outside')
         fig_egresos.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False, height=400)
         st.plotly_chart(fig_egresos, use_container_width=True)
 
