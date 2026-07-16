@@ -4,13 +4,13 @@ import plotly.express as px
 from datetime import datetime
 
 # 1. Configuración de la página
-st.set_page_config(page_title="goBIG Financiero v2.0", page_icon="💰", layout="wide")
+st.set_page_config(page_title="goBIG Financiero v2.1", page_icon="💰", layout="wide")
 
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
-    st.caption("v2.0 - Consola de Control Financiero Integral")
-    st.info("🧠 **Novedad:** Diccionario de auto-clasificación, nómina dinámica y proyección de costos fijos por periodo.")
+    st.caption("v2.1 - Consola de Control Financiero")
+    st.info("🧠 **Novedad:** Escáner de texto profundo (Fila Completa) y Escudo Anti-Fechas Futuras.")
 
 st.title("💰 Consola Financiera y Control de Caja")
 st.markdown("Consolidación bancaria, auto-clasificación de gastos y auditoría de flujo neto.")
@@ -94,33 +94,46 @@ def load_all_financials():
             return d
 
         df_caja['Fecha_OK'] = pd.to_datetime(df_caja.apply(fix_strict_date, axis=1), format='mixed', dayfirst=True, errors='coerce')
+        
+        # 🛡️ ESCUDO ANTI-FUTURO (Auto-corrector de meses invertidos)
+        hoy = datetime.now()
+        def fix_future_dates(d):
+            if pd.notnull(d) and d > hoy:
+                try: 
+                    # Si la fecha es en el futuro, asume que el banco invirtió día y mes
+                    return d.replace(day=d.month, month=d.day)
+                except ValueError: return d
+            return d
+            
+        df_caja['Fecha_OK'] = df_caja['Fecha_OK'].apply(fix_future_dates)
+        
         df_caja = df_caja.dropna(subset=['Fecha_OK'])
         df_caja['Mes-Año'] = df_caja['Fecha_OK'].dt.strftime('%Y-%m')
         df_caja['Mes_Num'] = df_caja['Fecha_OK'].dt.month
         df_caja['Año_Num'] = df_caja['Fecha_OK'].dt.year
         
-        c_desc = next((c for c in df_caja.columns if 'descrip' in c.lower() or 'detalle' in c.lower()), df_caja.columns[1])
         c_cc = next((c for c in df_caja.columns if 'centro' in c.lower() or 'costo' in c.lower()), 'Centro de costos')
         if c_cc not in df_caja.columns: df_caja[c_cc] = ''
         
-        df_caja['Desc_Limpia'] = df_caja[c_desc].astype(str).str.strip().str.upper()
+        # 🧠 ESCÁNER PROFUNDO DE FILA (Solución a BBVA)
+        # Unimos todo el texto de la fila para que el diccionario nunca falle
+        df_caja['Texto_Fila_Completa'] = df_caja.astype(str).agg(' '.join, axis=1).str.upper()
         df_caja['CC_Manual'] = df_caja[c_cc].astype(str).str.strip().str.upper()
 
-        # MOTOR DE CLASIFICACIÓN CON DICCIONARIO
         def auto_clasificar(row):
-            desc = row['Desc_Limpia']
+            texto = row['Texto_Fila_Completa']
             cc_man = row['CC_Manual']
             
-            # 1. Buscar en diccionario
+            # 1. Buscar en diccionario en CUALQUIER PARTE de la fila
             for palabra, cc_auto in dicc_reglas.items():
-                if palabra != 'NAN' and palabra in desc:
+                if palabra != 'NAN' and palabra in texto:
                     return cc_auto
                     
             # 2. Respetar input manual
             if cc_man not in ['', 'NAN', 'NONE']: return cc_man
             
             # 3. Reglas por defecto
-            if 'ARRIENDO' in desc: return 'OFICINA'
+            if 'ARRIENDO' in texto: return 'OFICINA'
             return 'POR CLASIFICAR - GENERAL' if row['Monto_Neto'] < 0 else 'OTROS INGRESOS'
 
         df_caja['Centro_Costos_BI'] = df_caja.apply(auto_clasificar, axis=1)
@@ -176,17 +189,14 @@ if not df_caja.empty:
     lista_meses = sorted(list(df_caja['Mes-Año'].unique()), reverse=True)
     mes_sel = c2.selectbox("Filtrar por Mes:", lista_meses)
     
-    # Extraer variables del mes seleccionado para cálculos teóricos
     año_sel = int(mes_sel.split('-')[0])
     mes_num_sel = int(mes_sel.split('-')[1])
     fecha_corte_mes = pd.to_datetime(f"{año_sel}-{mes_num_sel}-01") + pd.offsets.MonthEnd(0)
     fecha_inicio_mes = pd.to_datetime(f"{año_sel}-{mes_num_sel}-01")
 
-    # Filtro Bancario
     df_f = df_caja[df_caja['Mes-Año'] == mes_sel].copy()
     if cuenta_sel != "Consolidado (Ambas)": df_f = df_f[df_f['Cuenta'] == cuenta_sel]
     
-    # KPIs Bancarios
     st.markdown("---")
     st.subheader("🏦 Realidad Bancaria (Flujo de Caja Real)")
     k1, k2, k3 = st.columns(3)
@@ -199,7 +209,6 @@ if not df_caja.empty:
     k2.metric("Egresos (Banco)", f"${egresos:,.0f}")
     k3.metric("Flujo Neto Mes", f"${flujo:,.0f}", delta=f"${flujo:,.0f}")
     
-    # SOLUCIÓN PUNTO 1: ¿Por qué dio negativo? Desglose visual
     if egresos > 0:
         st.write("**¿En qué se fue el dinero este mes? (Desglose de Egresos Reales)**")
         df_egresos = df_f[df_f['Egreso ($)'] > 0].groupby('Centro_Costos_BI')['Egreso ($)'].sum().reset_index()
@@ -211,14 +220,12 @@ if not df_caja.empty:
         fig_egresos.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False, height=400)
         st.plotly_chart(fig_egresos, use_container_width=True)
 
-    # SOLUCIÓN PUNTO 2 y 3: Proyección Teórica
     st.markdown("---")
     st.subheader("📋 Auditoría Teórica (Lo que debió costar vs Banco)")
     
     t1, t2 = st.columns(2)
     
     with t1:
-        # Cálculo Nómina Dinámica
         if not df_nomina.empty:
             activos = df_nomina[
                 (df_nomina['Fecha_Inicio'] <= fecha_corte_mes) & 
@@ -230,14 +237,11 @@ if not df_caja.empty:
                 st.dataframe(activos[['COLABORADOR', 'Costo_Mensual']], hide_index=True)
                 
     with t2:
-        # Cálculo Costos Fijos Históricos
         if not df_fijos.empty:
-            # Filtrar filas cuyo mes inicio sea <= mes_actual y mes fin sea vacío o >= mes_actual
             fijos_activos = df_fijos[
                 (df_fijos['M_Inicio_Num'] <= mes_num_sel) & 
                 (df_fijos['M_Fin_Num'].isna() | (df_fijos['M_Fin_Num'] >= mes_num_sel))
             ]
-            # Omitimos la fila "fantasma" de nómina total que tú pones a mano en Sheets
             fijos_activos = fijos_activos[~fijos_activos[fijos_activos.columns[0]].astype(str).str.contains("Nómina", case=False, na=False)]
             
             total_fijos = fijos_activos['Monto_Limpio'].sum()
@@ -251,6 +255,6 @@ if not df_caja.empty:
     
     if not alertas.empty:
         st.error(f"🔴 Se detectaron **{len(alertas)} transacciones** sin regla en el Diccionario. Agrégalas a tu pestaña '06_Diccionario_Clasificacion':")
-        st.dataframe(alertas[['Fecha_OK', 'Desc_Limpia', 'Monto_Neto', 'Centro_Costos_BI']], use_container_width=True)
+        st.dataframe(alertas[['Fecha_OK', 'Texto_Fila_Completa', 'Monto_Neto', 'Centro_Costos_BI']], use_container_width=True)
     else:
-        st.success("🟢 ¡Excelente! El 100% de los gastos de este mes fueron clasificados exitosamente por el Diccionario y tu ingreso manual.")
+        st.success("🟢 ¡Excelente! El 100% de los gastos de este mes fueron clasificados exitosamente.")
