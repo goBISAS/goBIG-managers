@@ -87,11 +87,27 @@ def load_all_financials():
         df_caja['Monto_Neto'] = df_caja[c_monto].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[c_saldo].apply(clean_currency_global)
         
-        # --- DETECTIVE DE FECHAS ---
+        # --- DETECTIVE DE FECHAS (CON BYPASS PARA ENERO) ---
         def fix_strict_date(row):
             if not c_fecha: return pd.NaT
-            d = str(row[c_fecha]).strip().replace('-', '/')
+            val = row[c_fecha]
+            
+            # 1. BYPASS: Si Pandas ya lo convirtió a un objeto de tiempo nativo (Ej: Enero)
+            if isinstance(val, (pd.Timestamp, datetime)):
+                return val
+                
+            d = str(val).strip()
             if d.lower() in ['nan', 'none', 'nat', '<na>', '']: return pd.NaT
+            
+            # 2. BYPASS: Si es un texto que ya tiene formato de base de datos 'YYYY-MM-DD'
+            if len(d) >= 10 and d[4] == '-' and d[7] == '-':
+                try:
+                    return pd.to_datetime(d).normalize()
+                except:
+                    pass
+            
+            # 3. MODO DETECTIVE: Para formatos raros (Ej: 13/03)
+            d = d.replace('-', '/')
             
             y = str(row[c_ano]).strip() if c_ano else "2026"
             if '.' in y: y = y.split('.')[0]
@@ -107,7 +123,9 @@ def load_all_financials():
                     return pd.NaT
             elif len(parts) == 3:
                 try:
-                    p1, p2 = int(parts[0]), int(parts[1])
+                    # Usamos .split()[0] por si el banco pegó la hora "13 00:00:00"
+                    p1 = int(parts[0].split()[0])
+                    p2 = int(parts[1].split()[0])
                     if p1 == 1:
                         month, day = 1, p2
                     else:
@@ -132,7 +150,6 @@ def load_all_financials():
         
         # --- SELLADO DE VACÍOS (Filtro anti-fantasmas) ---
         df_caja['CC_Manual'] = df_caja[c_cc].fillna('').astype(str).str.strip().str.upper()
-        # Si pandas convirtió un vacío en texto falso, lo forzamos a vacío real ('')
         df_caja.loc[df_caja['CC_Manual'].isin(['NAN', 'NONE', '<NA>', 'NULL', 'NAT']), 'CC_Manual'] = ''
 
         # --- MOTOR DE CLASIFICACIÓN CON SUPERPODERES Y DETECCIÓN DE COMPRAS ---
@@ -165,7 +182,7 @@ def load_all_financials():
                 
                 if match: return cc_auto
                     
-            # 2. Respetar Input Manual (Solo pasará si escribiste algo real)
+            # 2. Respetar Input Manual
             if cc_man != '': return cc_man
             
             # 3. Reglas por defecto y Forzado de "COMPRAS"
@@ -275,7 +292,6 @@ if not df_caja.empty:
             total_nomina = activos['Costo_Mensual'].sum()
             st.metric("Nómina Teórica del Mes (Activos)", f"${total_nomina:,.0f}")
             with st.expander("Ver personas activas este mes"):
-                # Formateo visual de la tabla de Nómina
                 df_activos_disp = activos[['COLABORADOR', 'Costo_Mensual']].copy()
                 df_activos_disp['Costo_Mensual'] = df_activos_disp['Costo_Mensual'].apply(lambda x: f"${x:,.0f}")
                 st.dataframe(df_activos_disp, hide_index=True, use_container_width=True)
@@ -291,7 +307,6 @@ if not df_caja.empty:
             total_fijos = fijos_activos['Monto_Limpio'].sum()
             st.metric("Costos Fijos Operativos (Teóricos)", f"${total_fijos:,.0f}")
             with st.expander("Ver desglose de costos fijos de este mes"):
-                # Formateo visual de la tabla de Costos Fijos
                 df_fijos_disp = fijos_activos[[fijos_activos.columns[0], 'Monto_Limpio']].copy()
                 df_fijos_disp['Monto_Limpio'] = df_fijos_disp['Monto_Limpio'].apply(lambda x: f"${x:,.0f}")
                 st.dataframe(df_fijos_disp, hide_index=True, use_container_width=True)
@@ -302,7 +317,6 @@ if not df_caja.empty:
     
     if not alertas.empty:
         st.error(f"🔴 Se detectaron **{len(alertas)} transacciones** sin regla en el Diccionario. Agrégalas a tu pestaña '06_Diccionario_Clasificacion':")
-        # Formateo visual de la tabla de Alertas
         alertas_disp = alertas[['Fecha_OK', 'Desc_Limpia', 'Monto_Neto', 'Centro_Costos_BI']].copy()
         alertas_disp['Fecha'] = alertas_disp['Fecha_OK'].dt.strftime('%Y-%m-%d')
         alertas_disp['Monto'] = alertas_disp['Monto_Neto'].apply(lambda x: f"${x:,.0f}")
@@ -313,7 +327,6 @@ if not df_caja.empty:
     st.markdown("---")
     st.subheader("🔍 Tabla de Auditoría General")
     with st.expander("Ver el detalle de todas las transacciones del mes"):
-        # Tabla maestra para descubrir clasificaciones fantasma
         df_todas = df_f[['Fecha_OK', 'Desc_Limpia', 'Egreso ($)', 'Ingreso ($)', 'Centro_Costos_BI']].copy()
         df_todas['Fecha'] = df_todas['Fecha_OK'].dt.strftime('%Y-%m-%d')
         df_todas['Egreso'] = df_todas['Egreso ($)'].apply(lambda x: f"${x:,.0f}" if x > 0 else "-")
