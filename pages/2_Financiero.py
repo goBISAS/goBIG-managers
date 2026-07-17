@@ -49,7 +49,7 @@ def load_all_financials():
         s_fijos = [s for s in sheet_names if s.startswith('05_')]
         s_dicc = [s for s in sheet_names if s.startswith('06_')]
 
-        # --- A. DICCIONARIO DE CLASIFICACIÓN AVANZADO (ORDEN INDIFERENTE) ---
+        # --- A. DICCIONARIO DE CLASIFICACIÓN AVANZADO ---
         reglas_procesadas = []
         if s_dicc:
             df_d = pd.read_excel(xls, sheet_name=s_dicc[0])
@@ -61,8 +61,7 @@ def load_all_financials():
                     if patron != 'NAN' and patron != '':
                         reglas_procesadas.append((patron, cc))
                 
-                # AUTO-PRIORIZACIÓN: Ordena las reglas automáticamente de la más específica a la más general.
-                # Prioriza patrones que tengan un '+' (and) y luego por longitud de caracteres (frases más largas primero).
+                # Auto-priorización
                 reglas_procesadas.sort(key=lambda x: (x[0].count('+') > 0, len(x[0])), reverse=True)
 
         # --- B. BANCOS (FLUJO REAL) ---
@@ -88,42 +87,34 @@ def load_all_financials():
         df_caja['Monto_Neto'] = df_caja[c_monto].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[c_saldo].apply(clean_currency_global)
         
-        # --- DETECTIVE DE FECHAS INTELIGENTE ---
+        # --- DETECTIVE DE FECHAS ---
         def fix_strict_date(row):
             if not c_fecha: return pd.NaT
             d = str(row[c_fecha]).strip().replace('-', '/')
             if d.lower() in ['nan', 'none', 'nat', '']: return pd.NaT
             
-            # Obtener el año de tu columna "Año del movimiento"
             y = str(row[c_ano]).strip() if c_ano else "2026"
             if '.' in y: y = y.split('.')[0]
             if not y.isdigit() or len(y) != 4: y = "2026"
             
             parts = d.split('/')
             
-            # Caso de 2 partes (ej: "13/03") -> Siempre es Día/Mes
             if len(parts) == 2:
                 try:
                     p1, p2 = int(parts[0]), int(parts[1])
                     return f"{y}-{p2:02d}-{p1:02d}"
                 except ValueError:
                     return pd.NaT
-            
-            # Caso de 3 partes (ej: "1/9/2026" o "11/3/2026")
             elif len(parts) == 3:
                 try:
                     p1, p2 = int(parts[0]), int(parts[1])
-                    
                     if p1 == 1:
-                        month = 1
-                        day = p2
+                        month, day = 1, p2
                     else:
-                        day = p1
-                        month = p2
+                        day, month = p1, p2
                     return f"{y}-{month:02d}-{day:02d}"
                 except ValueError:
                     return pd.NaT
-            
             return pd.NaT
 
         df_caja['Fecha_OK'] = pd.to_datetime(df_caja.apply(fix_strict_date, axis=1), errors='coerce')
@@ -140,15 +131,14 @@ def load_all_financials():
         df_caja['Desc_Limpia'] = df_caja[c_desc].astype(str).str.strip().str.upper()
         df_caja['CC_Manual'] = df_caja[c_cc].astype(str).str.strip().str.upper()
 
-        # MOTOR DE CLASIFICACIÓN CON SUPERPODERES Y LÓGICA BOOLEANA
+        # --- MOTOR DE CLASIFICACIÓN CON SUPERPODERES Y DETECCIÓN DE COMPRAS ---
         def auto_clasificar(row):
             desc = row['Desc_Limpia']
             cc_man = row['CC_Manual']
             
-            # 1. Buscar en el listado de reglas procesadas y auto-ordenadas por prioridad
+            # 1. Diccionario
             for patron, cc_auto in reglas_procesadas:
                 match = False
-                
                 if '+' in patron:
                     partes = [p.strip() for p in patron.split('+')]
                     cumple_todas = True
@@ -162,21 +152,22 @@ def load_all_financials():
                             if parte not in desc:
                                 cumple_todas = False
                                 break
-                    if cumple_todas:
-                        match = True
+                    if cumple_todas: match = True
                 elif '|' in patron:
                     partes = [p.strip() for p in patron.split('|')]
-                    if any(p in desc for p in partes if p):
-                        match = True
+                    if any(p in desc for p in partes if p): match = True
                 else:
-                    if patron in desc:
-                        match = True
+                    if patron in desc: match = True
                 
-                if match:
-                    return cc_auto
+                if match: return cc_auto
                     
+            # 2. Respetar Input Manual
             if cc_man not in ['', 'NAN', 'NONE']: return cc_man
+            
+            # 3. Reglas por defecto y Forzado de "COMPRAS"
             if 'ARRIENDO' in desc: return 'OFICINA'
+            if 'COMPRA' in desc: return 'POR CLASIFICAR - COMPRAS'
+            
             return 'POR CLASIFICAR - GENERAL' if row['Monto_Neto'] < 0 else 'OTROS INGRESOS'
 
         df_caja['Centro_Costos_BI'] = df_caja.apply(auto_clasificar, axis=1)
@@ -232,17 +223,14 @@ if not df_caja.empty:
     lista_meses = sorted(list(df_caja['Mes-Año'].unique()), reverse=True)
     mes_sel = c2.selectbox("Filtrar por Mes:", lista_meses)
     
-    # Extraer variables del mes seleccionado para cálculos teóricos
     año_sel = int(mes_sel.split('-')[0])
     mes_num_sel = int(mes_sel.split('-')[1])
     fecha_corte_mes = pd.to_datetime(f"{año_sel}-{mes_num_sel}-01") + pd.offsets.MonthEnd(0)
     fecha_inicio_mes = pd.to_datetime(f"{año_sel}-{mes_num_sel}-01")
 
-    # Filtro Bancario
     df_f = df_caja[df_caja['Mes-Año'] == mes_sel].copy()
     if cuenta_sel != "Consolidado (Ambas)": df_f = df_f[df_f['Cuenta'] == cuenta_sel]
     
-    # KPIs Bancarios
     st.markdown("---")
     st.subheader("🏦 Realidad Bancaria (Flujo de Caja Real)")
     k1, k2, k3 = st.columns(3)
@@ -255,32 +243,26 @@ if not df_caja.empty:
     k2.metric("Egresos (Banco)", f"${egresos:,.0f}")
     k3.metric("Flujo Neto Mes", f"${flujo:,.0f}", delta=f"${flujo:,.0f}")
     
-    # --- GRÁFICO CORREGIDO: Formateo Nativo de Plotly ---
     if egresos > 0:
         st.write("**¿En qué se fue el dinero este mes? (Desglose de Egresos Reales)**")
         df_egresos = df_f[df_f['Egreso ($)'] > 0].groupby('Centro_Costos_BI')['Egreso ($)'].sum().reset_index()
-        
-        # Ordenamos los datos de menor a mayor antes de pasarlos a Plotly
         df_egresos_sorted = df_egresos.sort_values('Egreso ($)', ascending=True)
         
         fig_egresos = px.bar(df_egresos_sorted, 
                              x='Egreso ($)', y='Centro_Costos_BI', orientation='h', 
-                             text='Egreso ($)', # Aquí usamos la columna nativa
+                             text='Egreso ($)',
                              color='Egreso ($)', color_continuous_scale='Reds')
                              
-        # Le aplicamos el formato de moneda directamente en el texttemplate para que nunca se desalinee
         fig_egresos.update_traces(texttemplate='$%{text:,.0f}', textposition='outside')
         fig_egresos.update_layout(margin=dict(t=10, l=10, r=10, b=10), coloraxis_showscale=False, height=400)
         st.plotly_chart(fig_egresos, use_container_width=True)
 
-    # Proyección Teórica
     st.markdown("---")
     st.subheader("📋 Auditoría Teórica (Lo que debió costar vs Banco)")
     
     t1, t2 = st.columns(2)
     
     with t1:
-        # Cálculo Nómina Dinámica
         if not df_nomina.empty:
             activos = df_nomina[
                 (df_nomina['Fecha_Inicio'] <= fecha_corte_mes) & 
@@ -289,10 +271,12 @@ if not df_caja.empty:
             total_nomina = activos['Costo_Mensual'].sum()
             st.metric("Nómina Teórica del Mes (Activos)", f"${total_nomina:,.0f}")
             with st.expander("Ver personas activas este mes"):
-                st.dataframe(activos[['COLABORADOR', 'Costo_Mensual']], hide_index=True)
+                # Formateo visual de la tabla de Nómina
+                df_activos_disp = activos[['COLABORADOR', 'Costo_Mensual']].copy()
+                df_activos_disp['Costo_Mensual'] = df_activos_disp['Costo_Mensual'].apply(lambda x: f"${x:,.0f}")
+                st.dataframe(df_activos_disp, hide_index=True, use_container_width=True)
                 
     with t2:
-        # Cálculo Costos Fijos Históricos
         if not df_fijos.empty:
             fijos_activos = df_fijos[
                 (df_fijos['M_Inicio_Num'] <= mes_num_sel) & 
@@ -303,7 +287,10 @@ if not df_caja.empty:
             total_fijos = fijos_activos['Monto_Limpio'].sum()
             st.metric("Costos Fijos Operativos (Teóricos)", f"${total_fijos:,.0f}")
             with st.expander("Ver desglose de costos fijos de este mes"):
-                st.dataframe(fijos_activos[[fijos_activos.columns[0], 'Monto_Limpio']], hide_index=True)
+                # Formateo visual de la tabla de Costos Fijos
+                df_fijos_disp = fijos_activos[[fijos_activos.columns[0], 'Monto_Limpio']].copy()
+                df_fijos_disp['Monto_Limpio'] = df_fijos_disp['Monto_Limpio'].apply(lambda x: f"${x:,.0f}")
+                st.dataframe(df_fijos_disp, hide_index=True, use_container_width=True)
 
     st.markdown("---")
     st.subheader("🚨 Semáforo de Auto-Clasificación (Auditoría)")
@@ -311,9 +298,23 @@ if not df_caja.empty:
     
     if not alertas.empty:
         st.error(f"🔴 Se detectaron **{len(alertas)} transacciones** sin regla en el Diccionario. Agrégalas a tu pestaña '06_Diccionario_Clasificacion':")
-        st.dataframe(alertas[['Fecha_OK', 'Desc_Limpia', 'Monto_Neto', 'Centro_Costos_BI']], use_container_width=True)
+        # Formateo visual de la tabla de Alertas
+        alertas_disp = alertas[['Fecha_OK', 'Desc_Limpia', 'Monto_Neto', 'Centro_Costos_BI']].copy()
+        alertas_disp['Fecha'] = alertas_disp['Fecha_OK'].dt.strftime('%Y-%m-%d')
+        alertas_disp['Monto'] = alertas_disp['Monto_Neto'].apply(lambda x: f"${x:,.0f}")
+        st.dataframe(alertas_disp[['Fecha', 'Desc_Limpia', 'Monto', 'Centro_Costos_BI']], hide_index=True, use_container_width=True)
     else:
         st.success("🟢 ¡Excelente! El 100% de los gastos de este mes fueron clasificados exitosamente por el Diccionario y tu ingreso manual.")
+        
+    st.markdown("---")
+    st.subheader("🔍 Tabla de Auditoría General")
+    with st.expander("Ver el detalle de todas las transacciones del mes"):
+        # Tabla maestra para descubrir clasificaciones fantasma
+        df_todas = df_f[['Fecha_OK', 'Desc_Limpia', 'Egreso ($)', 'Ingreso ($)', 'Centro_Costos_BI']].copy()
+        df_todas['Fecha'] = df_todas['Fecha_OK'].dt.strftime('%Y-%m-%d')
+        df_todas['Egreso'] = df_todas['Egreso ($)'].apply(lambda x: f"${x:,.0f}" if x > 0 else "-")
+        df_todas['Ingreso'] = df_todas['Ingreso ($)'].apply(lambda x: f"${x:,.0f}" if x > 0 else "-")
+        st.dataframe(df_todas[['Fecha', 'Desc_Limpia', 'Egreso', 'Ingreso', 'Centro_Costos_BI']], hide_index=True, use_container_width=True)
             
 else:
     st.warning("Sin datos para mostrar. Verifique las fuentes en Google Sheets.")
