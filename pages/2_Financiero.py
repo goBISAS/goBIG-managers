@@ -18,7 +18,7 @@ st.markdown("---")
 
 # 2. Funciones Utilitarias
 def clean_currency_global(value):
-    if pd.isna(value) or str(value).strip() in ['', 'nan', 'None']: return 0.0
+    if pd.isna(value) or str(value).strip() in ['', 'nan', 'None', '<NA>']: return 0.0
     val_str = str(value).replace('$', '').replace(' ', '').strip()
     if ',' in val_str and '.' in val_str:
         if val_str.find('.') < val_str.find(','): 
@@ -58,7 +58,7 @@ def load_all_financials():
                 for _, row in df_d.iterrows():
                     patron = str(row.iloc[0]).upper().strip()
                     cc = str(row.iloc[1]).upper().strip()
-                    if patron != 'NAN' and patron != '':
+                    if patron not in ['NAN', 'NONE', '<NA>', '']:
                         reglas_procesadas.append((patron, cc))
                 
                 # Auto-priorización
@@ -91,7 +91,7 @@ def load_all_financials():
         def fix_strict_date(row):
             if not c_fecha: return pd.NaT
             d = str(row[c_fecha]).strip().replace('-', '/')
-            if d.lower() in ['nan', 'none', 'nat', '']: return pd.NaT
+            if d.lower() in ['nan', 'none', 'nat', '<na>', '']: return pd.NaT
             
             y = str(row[c_ano]).strip() if c_ano else "2026"
             if '.' in y: y = y.split('.')[0]
@@ -129,7 +129,11 @@ def load_all_financials():
         if c_cc not in df_caja.columns: df_caja[c_cc] = ''
         
         df_caja['Desc_Limpia'] = df_caja[c_desc].astype(str).str.strip().str.upper()
-        df_caja['CC_Manual'] = df_caja[c_cc].astype(str).str.strip().str.upper()
+        
+        # --- SELLADO DE VACÍOS (Filtro anti-fantasmas) ---
+        df_caja['CC_Manual'] = df_caja[c_cc].fillna('').astype(str).str.strip().str.upper()
+        # Si pandas convirtió un vacío en texto falso, lo forzamos a vacío real ('')
+        df_caja.loc[df_caja['CC_Manual'].isin(['NAN', 'NONE', '<NA>', 'NULL', 'NAT']), 'CC_Manual'] = ''
 
         # --- MOTOR DE CLASIFICACIÓN CON SUPERPODERES Y DETECCIÓN DE COMPRAS ---
         def auto_clasificar(row):
@@ -161,8 +165,8 @@ def load_all_financials():
                 
                 if match: return cc_auto
                     
-            # 2. Respetar Input Manual
-            if cc_man not in ['', 'NAN', 'NONE']: return cc_man
+            # 2. Respetar Input Manual (Solo pasará si escribiste algo real)
+            if cc_man != '': return cc_man
             
             # 3. Reglas por defecto y Forzado de "COMPRAS"
             if 'ARRIENDO' in desc: return 'OFICINA'
