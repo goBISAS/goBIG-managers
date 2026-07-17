@@ -82,58 +82,69 @@ def load_all_financials():
         c_monto = next((c for c in df_caja.columns if 'monto' in c.lower()), None)
         c_saldo = next((c for c in df_caja.columns if 'saldo' in c.lower()), None)
         c_fecha = next((c for c in df_caja.columns if 'fecha' in c.lower()), None)
+        
+        # Nuevos detectores de columnas manuales de Año y Mes
         c_ano = next((c for c in df_caja.columns if 'año' in c.lower() or 'ano' in c.lower() or 'year' in c.lower()), None)
+        c_mes_mov = next((c for c in df_caja.columns if 'mes' in c.lower() and 'movimiento' in c.lower()), None)
+        if not c_mes_mov: # Fallback por si la llamas solo "Mes"
+            c_mes_mov = next((c for c in df_caja.columns if c.strip().lower() == 'mes'), None)
         
         df_caja['Monto_Neto'] = df_caja[c_monto].apply(clean_currency_global)
         df_caja['Saldo_Neto'] = df_caja[c_saldo].apply(clean_currency_global)
         
-        # --- DETECTIVE DE FECHAS (CON BYPASS PARA ENERO) ---
+        # --- DETECTIVE DE FECHAS (VERSIÓN MAESTRA / OVERRIDE MANUAL) ---
         def fix_strict_date(row):
-            if not c_fecha: return pd.NaT
-            val = row[c_fecha]
-            
-            # 1. BYPASS: Si Pandas ya lo convirtió a un objeto de tiempo nativo (Ej: Enero)
-            if isinstance(val, (pd.Timestamp, datetime)):
-                return val
-                
-            d = str(val).strip()
-            if d.lower() in ['nan', 'none', 'nat', '<na>', '']: return pd.NaT
-            
-            # 2. BYPASS: Si es un texto que ya tiene formato de base de datos 'YYYY-MM-DD'
-            if len(d) >= 10 and d[4] == '-' and d[7] == '-':
-                try:
-                    return pd.to_datetime(d).normalize()
-                except:
-                    pass
-            
-            # 3. MODO DETECTIVE: Para formatos raros (Ej: 13/03)
-            d = d.replace('-', '/')
-            
+            # 1. Obtener Año Seguro
             y = str(row[c_ano]).strip() if c_ano else "2026"
             if '.' in y: y = y.split('.')[0]
             if not y.isdigit() or len(y) != 4: y = "2026"
             
-            parts = d.split('/')
+            # 2. Obtener Mes Seguro (De tu nueva columna)
+            m = None
+            if c_mes_mov and pd.notna(row[c_mes_mov]):
+                m_val = str(row[c_mes_mov]).strip()
+                if '.' in m_val: m_val = m_val.split('.')[0]
+                if m_val.isdigit() and 1 <= int(m_val) <= 12:
+                    m = f"{int(m_val):02d}"
             
-            if len(parts) == 2:
-                try:
-                    p1, p2 = int(parts[0]), int(parts[1])
-                    return f"{y}-{p2:02d}-{p1:02d}"
-                except ValueError:
-                    return pd.NaT
-            elif len(parts) == 3:
-                try:
-                    # Usamos .split()[0] por si el banco pegó la hora "13 00:00:00"
-                    p1 = int(parts[0].split()[0])
-                    p2 = int(parts[1].split()[0])
-                    if p1 == 1:
-                        month, day = 1, p2
-                    else:
-                        day, month = p1, p2
-                    return f"{y}-{month:02d}-{day:02d}"
-                except ValueError:
-                    return pd.NaT
-            return pd.NaT
+            # 3. Rescatar el Día
+            d_final = "01" # Día 1 por defecto
+            if c_fecha and pd.notna(row[c_fecha]):
+                val = row[c_fecha]
+                if isinstance(val, (pd.Timestamp, datetime)):
+                    d_final = f"{val.day:02d}"
+                    if not m: m = f"{val.month:02d}"
+                else:
+                    d_str = str(val).strip().replace('-', '/')
+                    parts = d_str.split('/')
+                    if len(parts) >= 2:
+                        try:
+                            p1 = int(parts[0].split()[0])
+                            p2 = int(parts[1].split()[0])
+                            if m:
+                                m_int = int(m)
+                                # Si ya sabemos el mes exacto, deducimos que el otro número es el día
+                                if p1 == m_int and p2 != m_int: d_final = f"{p2:02d}"
+                                elif p2 == m_int and p1 != m_int: d_final = f"{p1:02d}"
+                                elif p1 > 12: d_final = f"{p1:02d}"
+                                elif p2 > 12: d_final = f"{p2:02d}"
+                                else: d_final = f"{p1:02d}"
+                            else:
+                                # Lógica antigua si el usuario no ha llenado la columna del mes
+                                if p1 == 1:
+                                    m = "01"
+                                    d_final = f"{p2:02d}"
+                                else:
+                                    d_final = f"{p1:02d}"
+                                    m = f"{p2:02d}"
+                        except:
+                            pass
+            
+            # Si no hubo forma de saber el mes (ni por columna manual ni por adivinanza), default 01
+            if not m: m = "01"
+            
+            # Forzar formato ISO perfecto
+            return pd.to_datetime(f"{y}-{m}-{d_final}", errors='coerce')
 
         df_caja['Fecha_OK'] = pd.to_datetime(df_caja.apply(fix_strict_date, axis=1), errors='coerce')
         df_caja = df_caja.dropna(subset=['Fecha_OK'])
@@ -157,7 +168,6 @@ def load_all_financials():
             desc = row['Desc_Limpia']
             cc_man = row['CC_Manual']
             
-            # 1. Diccionario
             for patron, cc_auto in reglas_procesadas:
                 match = False
                 if '+' in patron:
@@ -182,10 +192,8 @@ def load_all_financials():
                 
                 if match: return cc_auto
                     
-            # 2. Respetar Input Manual
             if cc_man != '': return cc_man
             
-            # 3. Reglas por defecto y Forzado de "COMPRAS"
             if 'ARRIENDO' in desc: return 'OFICINA'
             if 'COMPRA' in desc: return 'POR CLASIFICAR - COMPRAS'
             
