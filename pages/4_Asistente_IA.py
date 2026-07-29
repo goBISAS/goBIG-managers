@@ -34,7 +34,7 @@ with st.sidebar:
     
     # Indicador de estado visual (No requiere interacción)
     st.markdown("### 🟢 Estado del Sistema")
-    st.info(f"**Motor activo:** `{modelo_oficial}`\n\n**Conexión:** Segura y encriptada.\n\n**Cuota:** Plan Free-Tier (Ver panel de Google Cloud)")
+    st.info(f"**Motor activo:** `{modelo_oficial}`\n\n**Conexión:** Segura y encriptada.\n\n**Cuota:** Nivel Gratuito (100% Free Tier)")
 
 st.title("🧠 Analista Financiero de Inteligencia Artificial")
 st.markdown("Consulta en lenguaje natural o genera reportes ejecutivos basados en los datos financieros de goBIG.")
