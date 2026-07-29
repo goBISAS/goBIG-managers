@@ -29,8 +29,22 @@ if not api_key:
 
 try:
     genai.configure(api_key=api_key)
-    # CAMBIO AQUÍ: Usamos el modelo PRO universal que tiene mayor capacidad analítica
-    model = genai.GenerativeModel('gemini-pro')
+    
+    # --- AUTO-DETECCIÓN DEL MODELO A PRUEBA DE BALAS ---
+    # Le pedimos a Google la lista exacta de modelos a los que tu llave tiene acceso
+    modelos_validos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    
+    if not modelos_validos:
+        st.error("⚠️ Tu llave no tiene modelos de texto disponibles. Revisa tu consola de Google.")
+        st.stop()
+        
+    # Buscamos el mejor modelo disponible (1.5 pro, luego 1.5 flash, o el primero que funcione)
+    modelo_ideal = next((m for m in modelos_validos if '1.5-pro' in m), 
+                        next((m for m in modelos_validos if '1.5-flash' in m), modelos_validos[0]))
+                        
+    model = genai.GenerativeModel(modelo_ideal)
+    # ----------------------------------------------------
+    
 except Exception as e:
     st.error(f"⚠️ Error al inicializar Gemini: {e}")
     st.stop()
