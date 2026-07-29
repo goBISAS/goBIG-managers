@@ -4,6 +4,11 @@ import plotly.express as px
 
 # 1. Configuración de la página (El tema se adaptará automáticamente al modo oscuro del sistema/app)
 st.set_page_config(page_title="goBIG Operativo v1.2", page_icon="📈", layout="wide")
+# --- CANDADO DE SEGURIDAD ---
+if not st.session_state.get("authentication_status"):
+    st.warning("🔒 Acceso denegado. Por favor dirígete a la página de inicio (app) para iniciar sesión.")
+    st.stop()
+# ----------------------------
 
 # 2. Barra Lateral: Logo Oficial de goBIG e Identidad
 with st.sidebar:
