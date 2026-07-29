@@ -6,28 +6,27 @@ st.set_page_config(page_title="goBIG Managers", page_icon="📈", layout="wide")
 # 1. Cargar configuración de seguridad desde los secretos
 credenciales = dict(st.secrets["credentials"])
 cookie_config = dict(st.secrets["cookie"])
-preauth = dict(st.secrets["preauthorized"])
 
-# 2. Inicializar el Autenticador
+# 2. Inicializar el Autenticador (Sintaxis moderna)
 authenticator = stauth.Authenticate(
-    credenciales,
-    cookie_config["name"],
-    cookie_config["key"],
-    cookie_config["expiry_days"],
-    preauth
+    credentials=credenciales,
+    cookie_name=cookie_config["name"],
+    cookie_key=cookie_config["key"],
+    cookie_expiry_days=cookie_config["expiry_days"]
 )
 
 # 3. Mostrar el formulario de Login
-name, authentication_status, username = authenticator.login("Login - goBIG Managers", "main")
+authenticator.login()
 
-if authentication_status == False:
+# 4. Lógica de acceso basada en la sesión
+if st.session_state.get("authentication_status") is False:
     st.error("🔴 Usuario o contraseña incorrectos")
-elif authentication_status == None:
-    st.warning("🟡 Por favor ingresa tu usuario y contraseña")
-elif authentication_status:
+elif st.session_state.get("authentication_status") is None:
+    st.warning("🟡 Por favor ingresa tu usuario y contraseña para acceder.")
+elif st.session_state.get("authentication_status"):
     # --- SI EL LOGIN ES EXITOSO, MUESTRA ESTO ---
     with st.sidebar:
-        st.write(f"Bienvenido/a, **{name}**")
+        st.write(f"Bienvenido/a, **{st.session_state['name']}**")
         authenticator.logout("Cerrar Sesión", "sidebar")
         st.markdown("---")
         
