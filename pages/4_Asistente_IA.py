@@ -29,7 +29,8 @@ if not api_key:
 
 try:
     genai.configure(api_key=api_key)
-    model = genai.GenerativeModel('gemini-1.5-flash')
+    # CAMBIO AQUÍ: Usamos el modelo PRO universal que tiene mayor capacidad analítica
+    model = genai.GenerativeModel('gemini-pro')
 except Exception as e:
     st.error(f"⚠️ Error al inicializar Gemini: {e}")
     st.stop()
@@ -69,7 +70,6 @@ Instrucciones para la IA:
 """
 
 # 4. Construir la Interfaz de Pestañas (Chat y Reporte)
-# --- AQUÍ CAMBIAMOS EL NOMBRE DE LA PESTAÑA ---
 tab1, tab2 = st.tabs(["💬 Chatbot de Datos", "📄 Generador de reporte mensual AGE"])
 
 # --- PESTAÑA 1: CHATBOT ---
@@ -106,7 +106,6 @@ with tab2:
     st.subheader("Reporte Gerencial Automatizado")
     st.info("Genera un artículo narrativo profundo sobre la salud financiera y la valoración de goBIG S.A.S., estructurado para la presentación en la Asamblea General de Accionistas (AGE).")
     
-    # --- AQUÍ CAMBIAMOS EL NOMBRE DEL BOTÓN ---
     if st.button("🚀 Generar de reporte mensual AGE"):
         with st.spinner("Redactando reporte estratégico... esto puede tomar unos segundos."):
             prompt_mckinsey = f"""
