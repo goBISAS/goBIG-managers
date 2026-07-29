@@ -34,6 +34,12 @@ def load_data():
     df_val = pd.read_excel(xls, sheet_name=s_val[0]) if s_val else pd.DataFrame()
     return df_rend, df_val
 
+# Función auxiliar para convertir textos con formato ($ / .) a números limpios para la gráfica
+def clean_numeric_series(series):
+    cleaned = series.astype(str).str.replace('$', '', regex=False).str.replace(' ', '', regex=False)
+    cleaned = cleaned.str.replace('.', '', regex=False).str.replace(',', '.', regex=False)
+    return pd.to_numeric(cleaned, errors='coerce').fillna(0)
+
 try:
     df_rend, df_val = load_data()
 except Exception as e:
@@ -57,13 +63,18 @@ if not df_rend.empty:
         c_ebitda = cols[3] if len(cols) > 3 else (cols[2] if len(cols) > 2 else None)
         
         if c_ano and c_ing:
+            df_rend_plot = df_rend.copy()
+            df_rend_plot[c_ing] = clean_numeric_series(df_rend_plot[c_ing])
+            if c_ebitda:
+                df_rend_plot[c_ebitda] = clean_numeric_series(df_rend_plot[c_ebitda])
+            
             cols_grafico = [c for c in [c_ing, c_ebitda] if c]
             fig_rend = px.bar(
-                df_rend, 
+                df_rend_plot, 
                 x=c_ano, 
                 y=cols_grafico, 
                 barmode="group",
-                text_auto=True,  # Muestra los valores sobre cada barra
+                text_auto=True,
                 title="Evolución de Ingresos vs. EBITDA",
                 labels={"value": "Monto ($)", "variable": "Métrica"}
             )
@@ -88,12 +99,19 @@ if not df_val.empty:
     with col_v2:
         cols_val = df_val.columns.tolist()
         if len(cols_val) >= 2:
+            df_val_plot = df_val.copy()
+            col_x = cols_val[0]
+            col_y = cols_val[-1]
+            
+            # Limpieza limpia exclusiva para renderizar el gráfico
+            df_val_plot[col_y] = clean_numeric_series(df_val_plot[col_y])
+            
             fig_val = px.line(
-                df_val, 
-                x=cols_val[0], 
-                y=cols_val[-1], 
+                df_val_plot, 
+                x=col_x, 
+                y=col_y, 
                 markers=True,
-                text_auto=True,  # Muestra los números sobre cada punto de la curva
+                text_auto=True,
                 title="Evolución Valoración Pre-Money ($)"
             )
             fig_val.update_traces(textposition="top center")
