@@ -20,10 +20,11 @@ if not api_key:
 
 try:
     genai.configure(api_key=api_key)
-    # Obtenemos la lista real de modelos disponibles para tu llave
-    modelos_validos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    # Apuntamos directamente al modelo PRO (El más analítico para CFOs)
+    modelo_oficial = 'gemini-1.5-pro'
+    model = genai.GenerativeModel(modelo_oficial)
 except Exception as e:
-    st.error(f"⚠️ Error al inicializar Gemini o buscar modelos: {e}")
+    st.error(f"⚠️ Error al inicializar Gemini: {e}")
     st.stop()
 
 with st.sidebar:
@@ -31,21 +32,9 @@ with st.sidebar:
     st.markdown("---")
     st.caption("v2.0 - Motor de IA impulsado por Google Gemini")
     
-    # --- SELECTOR MANUAL DE MODELO ---
-    st.markdown("### ⚙️ Configuración IA")
-    if modelos_validos:
-        # Ponemos gemini-1.5-flash o pro de primeros si existen, sino el primero de la lista
-        idx_defecto = 0
-        for i, m in enumerate(modelos_validos):
-            if '1.5-flash' in m or '1.0-pro' in m:
-                idx_defecto = i
-                break
-        
-        modelo_seleccionado = st.selectbox("Selecciona el motor neuronal:", modelos_validos, index=idx_defecto)
-        model = genai.GenerativeModel(modelo_seleccionado)
-    else:
-        st.warning("No se encontraron modelos válidos para esta llave API.")
-        st.stop()
+    # Indicador de estado visual (No requiere interacción)
+    st.markdown("### 🟢 Estado del Sistema")
+    st.info(f"**Motor activo:** `{modelo_oficial}`\n\n**Conexión:** Segura y encriptada.\n\n**Cuota:** Plan Free-Tier (Ver panel de Google Cloud)")
 
 st.title("🧠 Analista Financiero de Inteligencia Artificial")
 st.markdown("Consulta en lenguaje natural o genera reportes ejecutivos basados en los datos financieros de goBIG.")
@@ -122,7 +111,7 @@ with tab2:
     st.subheader("Reporte Gerencial Automatizado")
     st.info("Genera un artículo narrativo profundo sobre la salud financiera y la valoración de goBIG S.A.S., estructurado para la presentación en la Asamblea General de Accionistas (AGE).")
     
-    if st.button("🚀 Generar de reporte mensual AGE"):
+    if st.button("🚀 Generar reporte mensual AGE"):
         with st.spinner("Redactando reporte estratégico... esto puede tomar unos segundos."):
             prompt_mckinsey = f"""
             {contexto_datos}
@@ -145,4 +134,3 @@ with tab2:
                 st.markdown(response_report.text)
             except Exception as e:
                 st.error(f"Error al generar el reporte: {e}")
-                
