@@ -3,4 +3,4 @@ pandas
 plotly
 openpyxl
 streamlit-authenticator
-google-generativeai
+google-generativeai>=0.7.2
