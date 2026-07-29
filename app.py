@@ -3,11 +3,15 @@ import streamlit_authenticator as stauth
 
 st.set_page_config(page_title="goBIG Managers", page_icon="📈", layout="wide")
 
-# 1. Cargar configuración de seguridad desde los secretos
+# 1. Extraer y "desbloquear" los secretos (Hacer una copia editable profunda)
 credenciales = dict(st.secrets["credentials"])
+credenciales['usernames'] = dict(credenciales['usernames'])
+for username in credenciales['usernames']:
+    credenciales['usernames'][username] = dict(credenciales['usernames'][username])
+
 cookie_config = dict(st.secrets["cookie"])
 
-# 2. Inicializar el Autenticador (Sintaxis moderna)
+# 2. Inicializar el Autenticador
 authenticator = stauth.Authenticate(
     credentials=credenciales,
     cookie_name=cookie_config["name"],
@@ -37,5 +41,6 @@ elif st.session_state.get("authentication_status"):
     
     *   **📈 Operativo:** Analítica comercial, leads y conversiones.
     *   **💰 Financiero:** Consolidación bancaria y flujo de caja real vs teórico.
+    *   **💎 Valoracion:** Rendimientos históricos y valoración corporativa Pre-Money.
     """)
     st.success(f"🟢 Sesión iniciada correctamente. Tu dispositivo será recordado por {cookie_config['expiry_days']} días.")
