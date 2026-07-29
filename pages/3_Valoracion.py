@@ -111,9 +111,10 @@ if not df_rend.empty:
     
     with col_chart:
         fig_r = go.Figure()
-        fig_r.add_trace(go.Bar(x=df_rend[c_ano_r], y=df_rend[c_ingresos], name='Ingresos', marker_color='#1f77b4'))
-        fig_r.add_trace(go.Bar(x=df_rend[c_ano_r], y=df_rend[c_ebitda], name='EBITDA', marker_color='#2ca02c'))
-        fig_r.update_layout(title="Crecimiento: Ingresos vs EBITDA", barmode='group', height=350, margin=dict(t=40, b=10, l=10, r=10))
+        # Se agregaron las propiedades de texto para mostrar los valores en las barras
+        fig_r.add_trace(go.Bar(x=df_rend[c_ano_r], y=df_rend[c_ingresos], name='Ingresos', marker_color='#1f77b4', text=df_rend[c_ingresos], textposition='outside', texttemplate='$%{text:,.0f}'))
+        fig_r.add_trace(go.Bar(x=df_rend[c_ano_r], y=df_rend[c_ebitda], name='EBITDA', marker_color='#2ca02c', text=df_rend[c_ebitda], textposition='outside', texttemplate='$%{text:,.0f}'))
+        fig_r.update_layout(title="Crecimiento: Ingresos vs EBITDA", barmode='group', height=400, margin=dict(t=40, b=10, l=10, r=10))
         st.plotly_chart(fig_r, use_container_width=True)
 
     with col_table:
@@ -160,9 +161,10 @@ if not df_val.empty:
     col_v_chart, col_v_table = st.columns([5, 5])
     
     with col_v_chart:
-        fig_v = px.line(df_val, x=c_ano_v, y=c_val_cop, markers=True, title="Curva de Valoración Exponencial (COP)")
-        fig_v.update_traces(line=dict(width=4, color='#ff7f0e'), marker=dict(size=12, color='white', line=dict(width=2, color='#ff7f0e')))
-        fig_v.update_layout(height=350, margin=dict(t=40, b=10, l=10, r=10), yaxis_title="Valoración (COP)", xaxis_title="Año", xaxis=dict(dtick=1))
+        # Se agregaron las propiedades de texto para mostrar los valores encima de cada punto de la línea
+        fig_v = px.line(df_val, x=c_ano_v, y=c_val_cop, markers=True, text=c_val_cop, title="Curva de Valoración Exponencial (COP)")
+        fig_v.update_traces(texttemplate='$%{text:,.0f}', textposition="top center", line=dict(width=4, color='#ff7f0e'), marker=dict(size=12, color='white', line=dict(width=2, color='#ff7f0e')))
+        fig_v.update_layout(height=400, margin=dict(t=40, b=10, l=10, r=10), yaxis_title="Valoración (COP)", xaxis_title="Año", xaxis=dict(dtick=1))
         st.plotly_chart(fig_v, use_container_width=True)
 
     with col_v_table:
