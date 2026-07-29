@@ -5,6 +5,11 @@ from datetime import datetime
 
 # 1. Configuración de la página
 st.set_page_config(page_title="goBIG Financiero v2.0", page_icon="💰", layout="wide")
+# --- CANDADO DE SEGURIDAD ---
+if not st.session_state.get("authentication_status"):
+    st.warning("🔒 Acceso denegado. Por favor dirígete a la página de inicio (app) para iniciar sesión.")
+    st.stop()
+# ----------------------------
 
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
