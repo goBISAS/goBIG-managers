@@ -11,15 +11,6 @@ if not st.session_state.get("authentication_status"):
     st.stop()
 # ----------------------------
 
-with st.sidebar:
-    st.image("goBIG_logo.jpg", width=200)
-    st.markdown("---")
-    st.caption("v2.0 - Motor de IA impulsado por Google Gemini")
-
-st.title("🧠 Analista Financiero de Inteligencia Artificial")
-st.markdown("Consulta en lenguaje natural o genera reportes ejecutivos basados en los datos financieros de goBIG.")
-st.markdown("---")
-
 # 2. Configurar Gemini API
 api_key = st.secrets.get("GEMINI_API_KEY")
 
@@ -29,25 +20,36 @@ if not api_key:
 
 try:
     genai.configure(api_key=api_key)
-    
-    # --- AUTO-DETECCIÓN DEL MODELO A PRUEBA DE BALAS ---
-    # Le pedimos a Google la lista exacta de modelos a los que tu llave tiene acceso
+    # Obtenemos la lista real de modelos disponibles para tu llave
     modelos_validos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
-    
-    if not modelos_validos:
-        st.error("⚠️ Tu llave no tiene modelos de texto disponibles. Revisa tu consola de Google.")
-        st.stop()
-        
-    # Buscamos el mejor modelo disponible (1.5 pro, luego 1.5 flash, o el primero que funcione)
-    modelo_ideal = next((m for m in modelos_validos if '1.5-pro' in m), 
-                        next((m for m in modelos_validos if '1.5-flash' in m), modelos_validos[0]))
-                        
-    model = genai.GenerativeModel(modelo_ideal)
-    # ----------------------------------------------------
-    
 except Exception as e:
-    st.error(f"⚠️ Error al inicializar Gemini: {e}")
+    st.error(f"⚠️ Error al inicializar Gemini o buscar modelos: {e}")
     st.stop()
+
+with st.sidebar:
+    st.image("goBIG_logo.jpg", width=200)
+    st.markdown("---")
+    st.caption("v2.0 - Motor de IA impulsado por Google Gemini")
+    
+    # --- SELECTOR MANUAL DE MODELO ---
+    st.markdown("### ⚙️ Configuración IA")
+    if modelos_validos:
+        # Ponemos gemini-1.5-flash o pro de primeros si existen, sino el primero de la lista
+        idx_defecto = 0
+        for i, m in enumerate(modelos_validos):
+            if '1.5-flash' in m or '1.0-pro' in m:
+                idx_defecto = i
+                break
+        
+        modelo_seleccionado = st.selectbox("Selecciona el motor neuronal:", modelos_validos, index=idx_defecto)
+        model = genai.GenerativeModel(modelo_seleccionado)
+    else:
+        st.warning("No se encontraron modelos válidos para esta llave API.")
+        st.stop()
+
+st.title("🧠 Analista Financiero de Inteligencia Artificial")
+st.markdown("Consulta en lenguaje natural o genera reportes ejecutivos basados en los datos financieros de goBIG.")
+st.markdown("---")
 
 # 3. Descargar datos para darle contexto a la IA
 @st.cache_data(ttl=600)
@@ -143,3 +145,4 @@ with tab2:
                 st.markdown(response_report.text)
             except Exception as e:
                 st.error(f"Error al generar el reporte: {e}")
+                
