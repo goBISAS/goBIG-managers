@@ -21,12 +21,18 @@ st.markdown("Consulta en lenguaje natural o genera reportes ejecutivos basados e
 st.markdown("---")
 
 # 2. Configurar Gemini API
+api_key = st.secrets.get("GEMINI_API_KEY")
+
+if not api_key:
+    st.error("🔑 No se encontró la variable 'GEMINI_API_KEY' en los Secrets de Streamlit.")
+    st.stop()
+
 try:
-    genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-    # Usamos el modelo más rápido y eficiente para texto
-    model = genai.GenerativeModel('gemini-1.5-flash') 
+    genai.configure(api_key=api_key)
+    # Inicialización del modelo estándar de Gemini
+    model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
-    st.error("⚠️ Error al conectar con la API de Gemini. Revisa tus secretos en Streamlit.")
+    st.error(f"⚠️ Error al inicializar Gemini: {e}")
     st.stop()
 
 # 3. Descargar datos para darle contexto a la IA
@@ -45,15 +51,15 @@ def load_data_for_ai():
 with st.spinner("Sincronizando cerebro de IA con Google Drive..."):
     df_rend, df_val = load_data_for_ai()
 
-# Convertir los datos a texto para que Gemini los entienda
+# Convertir los datos a texto formateado para la IA
 contexto_datos = f"""
 Aquí están los datos financieros históricos de la empresa goBIG S.A.S.:
 
 1. Tabla de Rendimientos (Ingresos, Utilidad, EBITDA, Margen):
-{df_rend.to_markdown()}
+{df_rend.to_string()}
 
 2. Tabla de Valoración Pre-Money (Múltiplos EBITDA):
-{df_val.to_markdown()}
+{df_val.to_string()}
 
 Instrucciones para la IA:
 - Eres el Director Financiero (CFO) analítico de goBIG S.A.S.
@@ -70,34 +76,27 @@ tab1, tab2 = st.tabs(["💬 Chatbot de Datos", "📄 Generador Reporte McKinsey"
 with tab1:
     st.subheader("Conversa con tus datos")
     
-    # Inicializar el historial del chat
     if "messages" not in st.session_state:
         st.session_state.messages = []
 
-    # Mostrar mensajes anteriores
     for message in st.session_state.messages:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
-    # Caja de texto para el usuario
     if prompt := st.chat_input("Ej: ¿Cuál fue el año con mayor crecimiento de EBITDA y por qué?"):
-        # Guardar y mostrar mensaje del usuario
         st.session_state.messages.append({"role": "user", "content": prompt})
         with st.chat_message("user"):
             st.markdown(prompt)
 
-        # Preparar prompt completo (Contexto + Historial + Pregunta)
         historial_texto = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages[-5:]])
         prompt_completo = f"{contexto_datos}\n\nHistorial reciente:\n{historial_texto}\n\nUsuario: {prompt}\nCFO AI:"
 
-        # Llamar a Gemini
         with st.chat_message("assistant"):
             with st.spinner("Analizando..."):
                 try:
                     response = model.generate_content(prompt_completo)
                     respuesta_ia = response.text
                     st.markdown(respuesta_ia)
-                    # Guardar respuesta
                     st.session_state.messages.append({"role": "assistant", "content": respuesta_ia})
                 except Exception as e:
                     st.error(f"Error al generar respuesta: {e}")
