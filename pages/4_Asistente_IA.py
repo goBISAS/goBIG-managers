@@ -29,7 +29,6 @@ if not api_key:
 
 try:
     genai.configure(api_key=api_key)
-    # Inicialización del modelo estándar de Gemini
     model = genai.GenerativeModel('gemini-1.5-flash')
 except Exception as e:
     st.error(f"⚠️ Error al inicializar Gemini: {e}")
@@ -70,7 +69,8 @@ Instrucciones para la IA:
 """
 
 # 4. Construir la Interfaz de Pestañas (Chat y Reporte)
-tab1, tab2 = st.tabs(["💬 Chatbot de Datos", "📄 Generador Reporte McKinsey"])
+# --- AQUÍ CAMBIAMOS EL NOMBRE DE LA PESTAÑA ---
+tab1, tab2 = st.tabs(["💬 Chatbot de Datos", "📄 Generador de reporte mensual AGE"])
 
 # --- PESTAÑA 1: CHATBOT ---
 with tab1:
@@ -101,21 +101,22 @@ with tab1:
                 except Exception as e:
                     st.error(f"Error al generar respuesta: {e}")
 
-# --- PESTAÑA 2: REPORTE MCKINSEY ---
+# --- PESTAÑA 2: REPORTE AGE ---
 with tab2:
     st.subheader("Reporte Gerencial Automatizado")
-    st.info("Genera un artículo narrativo profundo sobre la salud financiera y la valoración de goBIG S.A.S., estructurado con la rigurosidad de la consultoría estratégica de alto nivel.")
+    st.info("Genera un artículo narrativo profundo sobre la salud financiera y la valoración de goBIG S.A.S., estructurado para la presentación en la Asamblea General de Accionistas (AGE).")
     
-    if st.button("🚀 Generar Reporte Mensual (Estilo McKinsey)"):
+    # --- AQUÍ CAMBIAMOS EL NOMBRE DEL BOTÓN ---
+    if st.button("🚀 Generar de reporte mensual AGE"):
         with st.spinner("Redactando reporte estratégico... esto puede tomar unos segundos."):
             prompt_mckinsey = f"""
             {contexto_datos}
             
-            Tarea: Actúa como un Socio Senior de McKinsey & Company. 
+            Tarea: Actúa como un Socio Senior de McKinsey & Company estructurando un informe para la Asamblea General de Accionistas. 
             Escribe un artículo informativo y de análisis estratégico sobre los resultados financieros y la evolución de la valoración de goBIG S.A.S. (2020-2025).
             
             Estructura obligatoria del artículo:
-            1. Título atractivo y profesional.
+            1. Título atractivo y profesional (mencionando a la AGE).
             2. "Executive Summary" (Resumen ejecutivo de 1 párrafo).
             3. "El Viaje del Crecimiento" (Análisis de Ingresos vs EBITDA).
             4. "Evolución de la Valoración Pre-Money" (Explicación del salto de Etapa Semilla a Fase Escala).
