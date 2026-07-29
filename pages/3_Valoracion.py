@@ -44,27 +44,32 @@ except Exception as e:
 st.subheader("📈 1. Rendimientos Anuales Históricos")
 
 if not df_rend.empty:
-    st.dataframe(df_rend, use_container_width=True)
+    col1, col2 = st.columns([1, 1.2])
     
-    # --- LECTURA SEGURA DE COLUMNAS (A PRUEBA DE INDEXERROR) ---
-    cols = df_rend.columns.tolist()
-    c_ano = cols[0] if len(cols) > 0 else None
-    c_ing = cols[1] if len(cols) > 1 else None
-    c_ebitda = cols[3] if len(cols) > 3 else (cols[2] if len(cols) > 2 else None)
-    c_margen = cols[4] if len(cols) > 4 else (cols[-1] if len(cols) > 0 else None)
-    
-    # Gráficos dinámicos
-    if c_ano and c_ing:
-        cols_grafico = [c for c in [c_ing, c_ebitda] if c]
-        fig_rend = px.bar(
-            df_rend, 
-            x=c_ano, 
-            y=cols_grafico, 
-            barmode="group",
-            title="Evolución de Ingresos vs. EBITDA",
-            labels={"value": "Monto ($)", "variable": "Métrica"}
-        )
-        st.plotly_chart(fig_rend, use_container_width=True)
+    with col1:
+        st.markdown("##### 📊 Tabla de Datos")
+        st.dataframe(df_rend, use_container_width=True)
+        
+    with col2:
+        cols = df_rend.columns.tolist()
+        c_ano = cols[0] if len(cols) > 0 else None
+        c_ing = cols[1] if len(cols) > 1 else None
+        c_ebitda = cols[3] if len(cols) > 3 else (cols[2] if len(cols) > 2 else None)
+        
+        if c_ano and c_ing:
+            cols_grafico = [c for c in [c_ing, c_ebitda] if c]
+            fig_rend = px.bar(
+                df_rend, 
+                x=c_ano, 
+                y=cols_grafico, 
+                barmode="group",
+                text_auto=True,  # Muestra los valores sobre cada barra
+                title="Evolución de Ingresos vs. EBITDA",
+                labels={"value": "Monto ($)", "variable": "Métrica"}
+            )
+            fig_rend.update_traces(textposition="outside")
+            fig_rend.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+            st.plotly_chart(fig_rend, use_container_width=True)
 else:
     st.info("No se encontraron datos en la pestaña de Rendimientos.")
 
@@ -74,17 +79,25 @@ st.markdown("---")
 st.subheader("💎 2. Evolución de la Valoración Corporativa (Pre-Money)")
 
 if not df_val.empty:
-    st.dataframe(df_val, use_container_width=True)
+    col_v1, col_v2 = st.columns([1, 1.2])
     
-    cols_val = df_val.columns.tolist()
-    if len(cols_val) >= 2:
-        fig_val = px.line(
-            df_val, 
-            x=cols_val[0], 
-            y=cols_val[-1], 
-            markers=True,
-            title="Evolución de la Valoración Pre-Money"
-        )
-        st.plotly_chart(fig_val, use_container_width=True)
+    with col_v1:
+        st.markdown("##### 📊 Tabla de Valoración")
+        st.dataframe(df_val, use_container_width=True)
+        
+    with col_v2:
+        cols_val = df_val.columns.tolist()
+        if len(cols_val) >= 2:
+            fig_val = px.line(
+                df_val, 
+                x=cols_val[0], 
+                y=cols_val[-1], 
+                markers=True,
+                text_auto=True,  # Muestra los números sobre cada punto de la curva
+                title="Evolución Valoración Pre-Money ($)"
+            )
+            fig_val.update_traces(textposition="top center")
+            fig_val.update_layout(margin=dict(l=10, r=10, t=40, b=10))
+            st.plotly_chart(fig_val, use_container_width=True)
 else:
     st.info("No se encontraron datos en la pestaña de Valoración.")
