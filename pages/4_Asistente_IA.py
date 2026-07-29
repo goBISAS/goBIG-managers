@@ -11,7 +11,7 @@ if not st.session_state.get("authentication_status"):
     st.stop()
 # ----------------------------
 
-# 2. Configurar Gemini API
+# 2. Configurar Gemini API (El Cerebro Invisible)
 api_key = st.secrets.get("GEMINI_API_KEY")
 
 if not api_key:
@@ -20,21 +20,39 @@ if not api_key:
 
 try:
     genai.configure(api_key=api_key)
-    # Apuntamos directamente al modelo PRO (El más analítico para CFOs)
-    modelo_oficial = 'gemini-1.5-flash'
-    model = genai.GenerativeModel(modelo_oficial)
+    
+    # 1. Le pedimos a Google TODOS los modelos que tu llave tiene permitidos usar hoy.
+    modelos_validos = [m.name for m in genai.list_models() if 'generateContent' in m.supported_generation_methods]
+    
+    if not modelos_validos:
+        st.error("⚠️ Tu cuenta no tiene modelos de generación de texto habilitados.")
+        st.stop()
+        
+    # 2. Selección automática y silenciosa: 
+    # Tomamos el primero de la lista por defecto.
+    modelo_seleccionado = modelos_validos[0] 
+    
+    # Pero si encontramos uno que sea 'pro' o 'flash' (más estables), lo priorizamos.
+    for m in modelos_validos:
+        if "pro" in m:
+            modelo_seleccionado = m
+            break
+        elif "flash" in m:
+            modelo_seleccionado = m
+            
+    # 3. Inicializamos el modelo sin decirle nada al usuario
+    model = genai.GenerativeModel(modelo_seleccionado)
+    
 except Exception as e:
-    st.error(f"⚠️ Error al inicializar Gemini: {e}")
+    st.error(f"⚠️ Error interno de conexión con la IA: {e}")
     st.stop()
 
+# --- BARRA LATERAL LIMPIA ---
 with st.sidebar:
     st.image("goBIG_logo.jpg", width=200)
     st.markdown("---")
     st.caption("v2.0 - Motor de IA impulsado por Google Gemini")
-    
-    # Indicador de estado visual (No requiere interacción)
-    st.markdown("### 🟢 Estado del Sistema")
-    st.info(f"**Motor activo:** `{modelo_oficial}`\n\n**Conexión:** Segura y encriptada.\n\n**Cuota:** Nivel Gratuito (100% Free Tier)")
+    st.success("🟢 IA Conectada y Lista")
 
 st.title("🧠 Analista Financiero de Inteligencia Artificial")
 st.markdown("Consulta en lenguaje natural o genera reportes ejecutivos basados en los datos financieros de goBIG.")
